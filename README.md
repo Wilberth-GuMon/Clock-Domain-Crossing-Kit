@@ -1,581 +1,579 @@
 # CDCKIT — Clock Domain Crossing Toolkit
 ## Hardware Architecture Specification (HAS) & Micro-Architecture Specification (MAS)
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Documento | CDCKIT-SPEC-001 |
-| IP | `cdckit` — Biblioteca de primitivas CDC + FIFO asíncrona parametrizable |
-| Versión del documento | 0.7 (Draft) |
-| Versión de la IP | 1.0 (objetivo) |
-| Fecha | 2026-10-29 |
-| Proyecto padre | NetSwitch-4 — bloque de interfaz MAC ↔ núcleo |
-| Plataforma de referencia | AMD Vivado ML Standard Edition (gratuita) · Artix-7 `xc7a100tcsg324-1` |
+| Document | CDCKIT-SPEC-001 |
+| IP | `cdckit` — Library of CDC primitives + parameterizable asynchronous FIFO |
+| Document version | 0.7 (Draft) |
+| IP version | 1.0 (target) |
+| Date | 2026-10-29 |
+| Parent project | NetSwitch-4 — MAC ↔ core interface block |
+| Reference platform | AMD Vivado ML Standard Edition (free) · Artix-7 `xc7a100tcsg324-1` |
 
 ---
 
-## Índice
+## Table of contents
 
-**Parte I — Hardware Architecture Specification (HAS)**
+**Part I — Hardware Architecture Specification (HAS)**
 
-1. [Introducción](#1-introducción)
-2. [Resumen de características](#2-resumen-de-características)
-3. [Descripción funcional](#3-descripción-funcional)
-4. [Interfaces de hardware](#4-interfaces-de-hardware)
-5. [Parámetros de configuración](#5-parámetros-de-configuración)
-6. [Relojes y resets](#6-relojes-y-resets)
-7. [Rendimiento y latencias](#7-rendimiento-y-latencias)
-8. [Requisitos de integración](#8-requisitos-de-integración)
+1. [Introduction](#1-introduction)
+2. [Feature summary](#2-feature-summary)
+3. [Functional description](#3-functional-description)
+4. [Hardware interfaces](#4-hardware-interfaces)
+5. [Configuration parameters](#5-configuration-parameters)
+6. [Clocks and resets](#6-clocks-and-resets)
+7. [Performance and latency](#7-performance-and-latency)
+8. [Integration requirements](#8-integration-requirements)
 
-**Parte II — Micro-Architecture Specification (MAS)**
+**Part II — Micro-Architecture Specification (MAS)**
 
-9. [Jerarquía de módulos](#9-jerarquía-de-módulos)
-10. [`cdckit_sync`](#10-cdckit_sync--sincronizador-de-nivel)
-11. [`cdckit_rst_sync`](#11-cdckit_rst_sync--sincronizador-de-reset)
-12. [`cdckit_pulse_sync`](#12-cdckit_pulse_sync--sincronizador-de-pulsos-toggle)
-13. [`cdckit_hs`](#13-cdckit_hs--transferencia-multibit-por-handshake-de-4-fases)
-14. [`cdckit_afifo`](#14-cdckit_afifo--fifo-asíncrona)
-15. [Intención CDC y tabla de cruces](#15-intención-cdc-y-tabla-de-cruces)
-16. [Restricciones de timing (XDC)](#16-restricciones-de-timing-xdc)
-17. [Aserciones de diseño](#17-aserciones-de-diseño)
-18. [Recursos, potencia y portabilidad ASIC](#18-recursos-potencia-y-portabilidad-asic)
-19. [Matriz de trazabilidad de requisitos](#19-matriz-de-trazabilidad-de-requisitos)
-20. [Temas abiertos](#20-temas-abiertos)
+9. [Module hierarchy](#9-module-hierarchy)
+10. [`cdckit_sync`](#10-cdckit_sync--level-synchronizer)
+11. [`cdckit_rst_sync`](#11-cdckit_rst_sync--reset-synchronizer)
+12. [`cdckit_pulse_sync`](#12-cdckit_pulse_sync--pulse-synchronizer-toggle)
+13. [`cdckit_hs`](#13-cdckit_hs--multibit-transfer-via-4-phase-handshake)
+14. [`cdckit_afifo`](#14-cdckit_afifo--asynchronous-fifo)
+15. [CDC intent and crossing table](#15-cdc-intent-and-crossing-table)
+16. [Timing constraints (XDC)](#16-timing-constraints-xdc)
+17. [Design assertions](#17-design-assertions)
+18. [Resources, power and ASIC portability](#18-resources-power-and-asic-portability)
+19. [Requirements traceability matrix](#19-requirements-traceability-matrix)
+20. [Open issues](#20-open-issues)
 
-**Anexos**
+**Annexes**
 
-- [A. Análisis de MTBF](#anexo-a--análisis-de-mtbf)
-- [B. Integración de referencia: snapshot de contador de 64 b](#anexo-b--integración-de-referencia-snapshot-de-contador-de-64-b)
-- [C. Glosario](#anexo-c--glosario)
-- [D. Referencias](#anexo-d--referencias)
-
----
-
-## Convenciones del documento
-
-**Nomenclatura de señales.**
-
-| Sufijo / prefijo | Significado |
-|---|---|
-| `_i` / `_o` | Entrada / salida del módulo. |
-| `_ni` / `_no` | Entrada / salida activa en bajo. |
-| `_q` | Salida de registro (flip-flop). |
-| `_d` | Entrada D de registro (valor próximo). |
-| `w*` / `r*` | Dominio de escritura / lectura de la FIFO. |
-| `src_*` / `dst_*` | Dominio origen / destino. |
-
-**Unidades.** `T_x` denota el período del reloj `x`. Las latencias se expresan en flancos activos (de subida) del reloj indicado.
+- [A. MTBF analysis](#annex-a--mtbf-analysis)
+- [B. Reference integration: 64-bit counter snapshot](#annex-b--reference-integration-64-bit-counter-snapshot)
+- [C. Glossary](#annex-c--glossary)
+- [D. References](#annex-d--references)
 
 ---
 
-# PARTE I — HARDWARE ARCHITECTURE SPECIFICATION
+## Document conventions
 
-## 1. Introducción
+**Signal naming.**
 
-### 1.1 Alcance
-
-`cdckit` es una biblioteca de cinco primitivas sintetizables para transferir información de forma segura entre dominios de reloj sin relación de frecuencia ni de fase:
-
-| Módulo | Clase de señal que transporta |
+| Suffix / prefix | Meaning |
 |---|---|
-| `cdckit_sync` | Nivel de 1 bit, o bits mutuamente independientes. |
-| `cdckit_rst_sync` | Reset asíncrono hacia un dominio de reloj. |
-| `cdckit_pulse_sync` | Eventos de un ciclo (pulsos). |
-| `cdckit_hs` | Palabra multibit esporádica (configuración, snapshots). |
-| `cdckit_afifo` | Flujo continuo de palabras multibit. |
+| `_i` / `_o` | Module input / output. |
+| `_ni` / `_no` | Active-low input / output. |
+| `_q` | Register (flip-flop) output. |
+| `_d` | Register D input (next value). |
+| `current_state` / `nxt_state` | FSM state register / next-state value (used instead of `_q` / `_d` for FSMs). |
+| `w*` / `r*` | FIFO write / read domain. |
+| `src_*` / `dst_*` | Source / destination domain. |
 
-**Fuera de alcance de la versión 1.0:**
+**Units.** `T_x` denotes the period of clock `x`. Latencies are expressed in active (rising) edges of the indicated clock.
 
-- FIFO asíncrona sobre Block RAM (la v1.0 solo usa RAM distribuida, LUTRAM; ver OI-01).
-- Profundidades que no son potencia de 2.
-- Conversión de ancho de datos entre puertos.
-- Protección ECC o de paridad de la memoria.
-- Reset independiente de un solo dominio de la FIFO (ver §6.3 y OI-02).
-- Implementación ASIC. El RTL se mantiene portable (puertos de scan, requisitos DFT y de aislamiento como informativos, §18.3), pero la v1.0 solo se verifica e implementa en FPGA.
-- Verificación formal (la plataforma de referencia no incluye motor formal; ver OI-08).
+**Requirement keywords.** MUST, MUST NOT, SHOULD and MAY are used as defined in RFC 2119.
 
-### 1.2 Contexto del sistema
+---
 
-En NetSwitch-4, `cdckit_afifo` desacopla cada MAC RX (reloj recuperado de 156.25 MHz, ±100 ppm) del núcleo (250 MHz). El resto de primitivas transportan estado de enlace, eventos de control de flujo y snapshots de contadores hacia el dominio de configuración (100 MHz).
+# PART I — HARDWARE ARCHITECTURE SPECIFICATION
 
-![Contexto del sistema NetSwitch-4](img/fig01_system_context.png)
-*Figura 1 — Uso de `cdckit` en NetSwitch-4.*
+## 1. Introduction
 
-### 1.3 Configuración de referencia
+### 1.1 Scope
 
-Salvo indicación contraria, las cifras de este documento usan la configuración de referencia de NetSwitch-4:
+`cdckit` is a library of five synthesizable primitives for safely transferring information between clock domains with no frequency or phase relationship:
 
-| Parámetro | Valor |
+| Module | Signal class it carries |
 |---|---|
-| `DATA_W` (FIFO) | 72 (64 b de datos + 8 b de `tkeep` / `tlast` / `tuser`) |
+| `cdckit_sync` | 1-bit level, or mutually independent bits. |
+| `cdckit_rst_sync` | Asynchronous reset into a clock domain. |
+| `cdckit_pulse_sync` | Single-cycle events (pulses). |
+| `cdckit_hs` | Sporadic multibit word (configuration, snapshots). |
+| `cdckit_afifo` | Continuous stream of multibit words. |
+
+**Out of scope for version 1.0:**
+
+- Asynchronous FIFO on Block RAM (v1.0 uses distributed RAM, LUTRAM, only; see OI-01).
+- Non-power-of-2 depths.
+- Data-width conversion between ports.
+- ECC or parity protection of the memory.
+- Independent single-domain reset of the FIFO (see §6.3 and OI-02).
+- ASIC implementation. The RTL is kept portable (DFT and isolation requirements as informative, §18.3), but v1.0 is only verified and implemented on FPGA.
+- Formal verification (the reference platform does not include a formal engine; see OI-08).
+
+### 1.2 System context
+
+In NetSwitch-4, `cdckit_afifo` decouples each MAC RX (recovered clock at 156.25 MHz, ±100 ppm) from the core (250 MHz). The remaining primitives carry link status, flow-control events and counter snapshots to the configuration domain (100 MHz).
+
+![NetSwitch-4 system context](img/fig01_system_context.png)
+*Figure 1 — Use of `cdckit` in NetSwitch-4.*
+
+### 1.3 Reference configuration
+
+Unless stated otherwise, the figures in this document use the NetSwitch-4 reference configuration:
+
+| Parameter | Value |
+|---|---|
+| `DATA_W` (FIFO) | 72 (64 b of data + 8 b of `tkeep` / `tlast` / `tuser`) |
 | `DEPTH` | 32 |
 | `NUM_STAGES` | 2 |
 | `wclk` | 156.25 MHz (T = 6.4 ns) |
 | `rclk` | 250 MHz (T = 4.0 ns) |
-| Dispositivo | Artix-7 `xc7a100tcsg324-1` (grado de velocidad -1) |
-| Herramientas | Vivado ML Standard Edition 2025.1 |
+| Device | Artix-7 `xc7a100tcsg324-1` (speed grade -1) |
+| Tools | Vivado ML Standard Edition 2025.1 |
 
 ---
 
-## 2. Resumen de características
+## 2. Feature summary
 
-- Cinco primitivas CDC con estructura reconocible por `report_cdc` de Vivado (sincronizadores marcados con `ASYNC_REG`) y por herramientas CDC comerciales.
-- Todos los sincronizadores se implementan a través de **una única primitiva** (`cdckit_sync`). Esto permite sustituirla por la macro `xpm_cdc_array_single` de Vivado, o por una celda sincronizadora de librería en ASIC, sin modificar el resto del RTL.
-- Número de etapas de sincronización configurable (2 a 4).
-- Sincronizador de reset con aserción asíncrona y liberación síncrona, más bypass para modo de test (portabilidad ASIC; en FPGA se fija a 0).
-- Sincronizador de pulsos basado en toggle, sin camino combinacional entre dominios.
-- Transferencia multibit por handshake de 4 fases con interfaz valid/ready en el origen y registro de retención.
-- FIFO asíncrona:
-  - punteros Gray **registrados** sincronizados al dominio opuesto;
-  - semántica *first-word fall-through* (FWFT);
-  - banderas `full` / `empty` conservadoras, garantizadas sin overflow ni underflow;
-  - umbrales `almost_full` / `almost_empty` programables por parámetro;
-  - contadores de ocupación por dominio;
-  - indicadores de `overflow` / `underflow` (intento de escritura con FIFO llena o de lectura con FIFO vacía);
-  - opción de forzar `rd_data_o` a cero cuando la FIFO está vacía.
-- Throughput sostenido de 1 palabra por ciclo en ambos puertos.
-- Aserciones SVA embebidas (deshabilitadas en síntesis) para los invariantes críticos.
-- Tabla de cruces CDC, clasificación esperada en `report_cdc` e intención de restricciones XDC con alcance por módulo (§16).
-- Equivalencia documentada con las macros XPM de Vivado, que sirven de referencia de recursos y Fmax (Tabla 8-1).
+- Five CDC primitives with a structure recognizable by Vivado `report_cdc` (synchronizers marked with `ASYNC_REG`) and by commercial CDC tools.
+- All synchronizers are implemented through **a single primitive** (`cdckit_sync`). This allows replacing it with Vivado's `xpm_cdc_array_single` macro, or with a library synchronizer cell in ASIC, without modifying the rest of the RTL.
+- Configurable number of synchronization stages (2 to 4).
+- Reset synchronizer with asynchronous assertion and synchronous deassertion.
+- Toggle-based pulse synchronizer, with no combinational path between domains.
+- Multibit transfer through a 4-phase handshake with a valid/ready interface on the source side and a holding register.
+- Asynchronous FIFO:
+  - **registered** Gray pointers synchronized to the opposite domain;
+  - *first-word fall-through* (FWFT) semantics;
+  - conservative `full` / `empty` flags, guaranteed free of overflow and underflow;
+  - `almost_full` / `almost_empty` thresholds programmable by parameter;
+  - per-domain occupancy counters;
+  - `overflow` / `underflow` indicators (write attempt with the FIFO full, or read attempt with the FIFO empty);
+  - option to force `rd_data_o` to zero when the FIFO is empty.
+- Sustained throughput of 1 word per cycle on both ports.
+- Embedded SVA assertions (disabled in synthesis) for the critical invariants.
+- CDC crossing table, expected `report_cdc` classification and intent for module-scoped XDC constraints (§16).
+- Documented equivalence with Vivado XPM macros, which serve as the resource and Fmax reference (Table 8-1).
 
 ---
 
-## 3. Descripción funcional
+## 3. Functional description
 
-### 3.1 Diagrama de bloques de la IP
+### 3.1 IP block diagram
 
-![Composición de la IP](img/fig02_ip_composition.png)
-*Figura 2 — Composición de la IP. Toda sincronización pasa por `cdckit_sync`.*
+![IP composition](img/fig02_ip_composition.png)
+*Figure 2 — IP composition. All synchronization goes through `cdckit_sync`.*
 
-### 3.2 Selección de primitiva
+### 3.2 Primitive selection
 
-La IP no decide qué primitiva usar; esa decisión corresponde al integrador. La Tabla 3-1 es la guía normativa de selección.
+The IP does not decide which primitive to use; that decision belongs to the integrator. Table 3-1 is the normative selection guide.
 
-| Característica de la señal | Primitiva | Restricción de uso |
+| Signal characteristic | Primitive | Usage restriction |
 |---|---|---|
-| Nivel de 1 bit, cambia lentamente respecto a `clk_dst` | `cdckit_sync` (`WIDTH=1`) | La señal DEBE salir de un flip-flop del dominio origen. |
-| Varios bits **independientes** entre sí | `cdckit_sync` (`WIDTH=N`) | NO DEBE usarse si los bits se interpretan juntos. |
-| Evento de un ciclo | `cdckit_pulse_sync` | Separación mínima entre eventos (PERF-003). |
-| Palabra multibit esporádica | `cdckit_hs` | Tasa ≤ 1 / T_hs (PERF-004). |
-| Flujo multibit continuo | `cdckit_afifo` | — |
-| Reset asíncrono | `cdckit_rst_sync` | Una instancia por dominio de reloj. |
+| 1-bit level, slowly changing relative to `clk_dst` | `cdckit_sync` (`WIDTH=1`) | The signal MUST come from a flip-flop in the source domain. |
+| Several mutually **independent** bits | `cdckit_sync` (`WIDTH=N`) | MUST NOT be used if the bits are interpreted together. |
+| Single-cycle event | `cdckit_pulse_sync` | Minimum spacing between events (PERF-003). |
+| Sporadic multibit word | `cdckit_hs` | Rate ≤ 1 / T_hs (PERF-004). |
+| Continuous multibit stream | `cdckit_afifo` | — |
+| Asynchronous reset | `cdckit_rst_sync` | One instance per clock domain. |
 
-*Tabla 3-1 — Selección de primitiva por clase de señal.*
+*Table 3-1 — Primitive selection by signal class.*
 
-### 3.3 Requisitos funcionales
+### 3.3 Functional requirements
 
-| ID | Requisito |
+| ID | Requirement |
 |---|---|
-| FUNC-001 | Toda señal que cruce entre dominios dentro de `cdckit` DEBE atravesar una instancia de `cdckit_sync`. |
-| FUNC-002 | `cdckit_sync` NO DEBE contener lógica combinacional entre sus etapas. |
-| FUNC-003 | `cdckit_rst_sync` DEBE propagar la aserción de reset sin depender de `clk_i` y DEBE liberar el reset sincronizado a `clk_i` tras `NUM_STAGES` flancos. |
-| FUNC-004 | `cdckit_pulse_sync` DEBE generar exactamente un pulso de un ciclo de `clk_dst_i` por cada pulso de `clk_src_i`, siempre que se respete PERF-003. |
-| FUNC-005 | `cdckit_hs` DEBE entregar en el destino la palabra exacta aceptada en el origen, sin valores intermedios ni mezclas de bits. |
-| FUNC-006 | `cdckit_hs` NO DEBE aceptar una nueva palabra (`src_ready_o = 0`) hasta completar las cuatro fases de la transferencia anterior. |
-| FUNC-007 | `cdckit_afifo` DEBE entregar las palabras en el mismo orden en que fueron escritas, sin pérdida ni duplicación. |
-| FUNC-008 | `cdckit_afifo` NO DEBE escribir en memoria cuando `full_o = 1`, ni avanzar el puntero de lectura cuando `empty_o = 1`. Esos intentos se señalan en `wr_overflow_o` / `rd_underflow_o`. |
-| FUNC-009 | `full_o` y `empty_o` DEBEN ser conservadores: pueden activarse antes o liberarse después del estado real, pero NUNCA deben permitir overflow ni underflow. |
-| FUNC-010 | `rd_data_o` DEBE presentar la palabra en cabeza de la FIFO mientras `empty_o = 0` (FWFT). |
-| FUNC-011 | Con `OUTPUT_ZERO_IF_EMPTY = 1`, `rd_data_o` DEBE valer cero mientras `empty_o = 1`. |
-| FUNC-012 | Tras el reset, la FIFO DEBE presentar `empty_o = 1`, `full_o = 0`, `wr_level_o = 0` y `rd_level_o = 0`. |
+| FUNC-001 | Every signal that crosses between domains inside `cdckit` MUST pass through an instance of `cdckit_sync`. |
+| FUNC-002 | `cdckit_sync` MUST NOT contain combinational logic between its stages. |
+| FUNC-003 | `cdckit_rst_sync` MUST propagate reset assertion without depending on `clk_i` and MUST release the reset synchronized to `clk_i` after `NUM_STAGES` edges. |
+| FUNC-004 | `cdckit_pulse_sync` MUST generate exactly one single-cycle `clk_dst_i` pulse for each `clk_src_i` pulse, provided PERF-003 is met. |
+| FUNC-005 | `cdckit_hs` MUST deliver at the destination the exact word accepted at the source, with no intermediate values or mixed bits. |
+| FUNC-006 | `cdckit_hs` MUST NOT accept a new word (`src_ready_o = 0`) until all four phases of the previous transfer have completed. |
+| FUNC-007 | `cdckit_afifo` MUST deliver words in the same order in which they were written, with no loss or duplication. |
+| FUNC-008 | `cdckit_afifo` MUST NOT write to memory when `full_o = 1`, nor advance the read pointer when `empty_o = 1`. Such attempts are flagged on `wr_overflow_o` / `rd_underflow_o`. |
+| FUNC-009 | `full_o` and `empty_o` MUST be conservative: they may assert earlier or deassert later than the real state, but they must NEVER allow overflow or underflow. |
+| FUNC-010 | `rd_data_o` MUST present the word at the head of the FIFO while `empty_o = 0` (FWFT). |
+| FUNC-011 | With `OUTPUT_ZERO_IF_EMPTY = 1`, `rd_data_o` MUST be zero while `empty_o = 1`. |
+| FUNC-012 | After reset, the FIFO MUST present `empty_o = 1`, `full_o = 0`, `wr_level_o = 0` and `rd_level_o = 0`. |
 
-### 3.4 Teoría de operación
+### 3.4 Theory of operation
 
-**Sincronización de nivel.** Una señal que se muestrea de forma asíncrona puede llevar al primer flip-flop a un estado metaestable. Las etapas posteriores conceden tiempo de resolución antes de que el valor alcance la lógica funcional. La probabilidad de fallo decrece exponencialmente con ese tiempo (Anexo A).
+**Level synchronization.** A signal sampled asynchronously can drive the first flip-flop into a metastable state. The following stages provide resolution time before the value reaches functional logic. The failure probability decreases exponentially with that time (Annex A).
 
-**Pulsos.** Un pulso del origen puede ser más corto que el período destino. Por eso se convierte en una transición de nivel (toggle), se sincroniza el nivel y se reconstruye el pulso en el destino detectando el flanco.
+**Pulses.** A source pulse may be shorter than the destination period. It is therefore converted into a level transition (toggle), the level is synchronized, and the pulse is rebuilt at the destination by edge detection.
 
-**Palabras esporádicas.** La palabra se congela en un registro de retención del dominio origen. Solo se sincronizan las señales de control `req` / `ack`. El protocolo garantiza que el dato está estable siempre que el destino lo muestrea.
+**Sporadic words.** The word is frozen in a holding register in the source domain. Only the `req` / `ack` control signals are synchronized. The protocol guarantees that the data is stable whenever the destination samples it.
 
-**Flujos continuos.** Los datos se escriben en una memoria con el reloj de escritura y se leen con el de lectura. Solo cruzan los punteros, codificados en Gray: entre valores consecutivos cambia un único bit, de modo que una captura durante la transición devuelve el valor anterior o el nuevo, nunca uno inválido. El retardo de sincronización hace que cada dominio vea el puntero remoto atrasado, por lo que las banderas son conservadoras.
+**Continuous streams.** Data is written into a memory with the write clock and read with the read clock. Only the pointers cross, Gray-encoded: a single bit changes between consecutive values, so a capture during the transition returns either the old or the new value, never an invalid one. The synchronization delay makes each domain see the remote pointer late, so the flags are conservative.
 
 ---
 
-## 4. Interfaces de hardware
+## 4. Hardware interfaces
 
-Columnas de las tablas: **Dir** = dirección, **Dom.** = dominio de reloj, **Reset** = valor durante el reset.
+Table columns: **Dir** = direction, **Dom.** = clock domain, **Reset** = value during reset.
 
 ### 4.1 `cdckit_sync`
 
-| Señal | Dir | Ancho | Dom. | Reset | Descripción |
+| Signal | Dir | Width | Dom. | Reset | Description |
 |---|---|---|---|---|---|
-| `clk_i` | in | 1 | — | — | Reloj destino. |
-| `rst_ni` | in | 1 | `clk_i` | — | Reset asíncrono activo bajo, ya sincronizado al dominio destino. |
-| `d_i` | in | `WIDTH` | asíncrono | — | Entrada a sincronizar. DEBE provenir de un flip-flop. |
-| `q_o` | out | `WIDTH` | `clk_i` | `RESET_VAL` | Salida sincronizada. |
+| `clk_i` | in | 1 | — | — | Destination clock. |
+| `rst_ni` | in | 1 | `clk_i` | — | Active-low asynchronous reset, already synchronized to the destination domain. |
+| `d_i` | in | `WIDTH` | async | — | Input to synchronize. MUST come from a flip-flop. |
+| `q_o` | out | `WIDTH` | `clk_i` | `RESET_VAL` | Synchronized output. |
 
 ### 4.2 `cdckit_rst_sync`
 
-| Señal | Dir | Ancho | Dom. | Reset | Descripción |
+| Signal | Dir | Width | Dom. | Reset | Description |
 |---|---|---|---|---|---|
-| `clk_i` | in | 1 | — | — | Reloj del dominio que recibe el reset. |
-| `arst_ni` | in | 1 | asíncrono | — | Fuente de reset asíncrona (POR, link-down, software). |
-| `scan_mode_i` | in | 1 | estático | — | 1 = modo de test; selecciona `scan_rst_ni`. En FPGA DEBE conectarse a `1'b0` (INTG-007). |
-| `scan_rst_ni` | in | 1 | — | — | Reset controlado por el ATPG en modo de test. En FPGA DEBE conectarse a `1'b1`. |
-| `rst_no` | out | 1 | `clk_i` | 0 | Reset del dominio: aserción asíncrona, liberación síncrona. |
+| `clk_i` | in | 1 | — | — | Clock of the domain receiving the reset. |
+| `arst_ni` | in | 1 | async | — | Asynchronous reset source (POR, link-down, software). |
+| `rst_no` | out | 1 | `clk_i` | 0 | Domain reset: asynchronous assertion, synchronous deassertion. |
 
 ### 4.3 `cdckit_pulse_sync`
 
-| Señal | Dir | Ancho | Dom. | Reset | Descripción |
+| Signal | Dir | Width | Dom. | Reset | Description |
 |---|---|---|---|---|---|
-| `clk_src_i` | in | 1 | — | — | Reloj origen. |
-| `rst_src_ni` | in | 1 | `clk_src_i` | — | Reset del dominio origen. |
-| `pulse_src_i` | in | 1 | `clk_src_i` | — | Evento de un ciclo. |
-| `clk_dst_i` | in | 1 | — | — | Reloj destino. |
-| `rst_dst_ni` | in | 1 | `clk_dst_i` | — | Reset del dominio destino. |
-| `pulse_dst_o` | out | 1 | `clk_dst_i` | 0 | Pulso de un ciclo por cada evento del origen. |
+| `clk_src_i` | in | 1 | — | — | Source clock. |
+| `rst_src_ni` | in | 1 | `clk_src_i` | — | Source domain reset. |
+| `pulse_src_i` | in | 1 | `clk_src_i` | — | Single-cycle event. |
+| `clk_dst_i` | in | 1 | — | — | Destination clock. |
+| `rst_dst_ni` | in | 1 | `clk_dst_i` | — | Destination domain reset. |
+| `pulse_dst_o` | out | 1 | `clk_dst_i` | 0 | Single-cycle pulse for each source event. |
 
 ### 4.4 `cdckit_hs`
 
-| Señal | Dir | Ancho | Dom. | Reset | Descripción |
+| Signal | Dir | Width | Dom. | Reset | Description |
 |---|---|---|---|---|---|
-| `clk_src_i` | in | 1 | — | — | Reloj origen. |
-| `rst_src_ni` | in | 1 | `clk_src_i` | — | Reset del dominio origen. |
-| `src_valid_i` | in | 1 | `clk_src_i` | — | Palabra disponible. |
-| `src_ready_o` | out | 1 | `clk_src_i` | 1 | La IP puede aceptar una palabra. Salida registrada. |
-| `src_data_i` | in | `DATA_W` | `clk_src_i` | — | Palabra a transferir. Se captura en el ciclo `src_valid_i && src_ready_o`. |
-| `clk_dst_i` | in | 1 | — | — | Reloj destino. |
-| `rst_dst_ni` | in | 1 | `clk_dst_i` | — | Reset del dominio destino. |
-| `dst_valid_o` | out | 1 | `clk_dst_i` | 0 | Pulso de un ciclo: `dst_data_o` contiene una palabra nueva. |
-| `dst_data_o` | out | `DATA_W` | `clk_dst_i` | 0 | Última palabra recibida. Estable hasta la siguiente transferencia. |
+| `clk_src_i` | in | 1 | — | — | Source clock. |
+| `rst_src_ni` | in | 1 | `clk_src_i` | — | Source domain reset. |
+| `src_valid_i` | in | 1 | `clk_src_i` | — | Word available. |
+| `src_ready_o` | out | 1 | `clk_src_i` | 1 | The IP can accept a word. Registered output. |
+| `src_data_i` | in | `DATA_W` | `clk_src_i` | — | Word to transfer. Captured in the `src_valid_i && src_ready_o` cycle. |
+| `clk_dst_i` | in | 1 | — | — | Destination clock. |
+| `rst_dst_ni` | in | 1 | `clk_dst_i` | — | Destination domain reset. |
+| `dst_valid_o` | out | 1 | `clk_dst_i` | 0 | Single-cycle pulse: `dst_data_o` holds a new word. |
+| `dst_data_o` | out | `DATA_W` | `clk_dst_i` | 0 | Last word received. Stable until the next transfer. |
 
-Protocolo del lado origen: **valid/ready** de AMBA. `src_valid_i` NO DEBE depender de `src_ready_o`. La transferencia ocurre en el flanco en que ambas valen 1. El lado destino no tiene backpressure: el consumidor DEBE aceptar `dst_valid_o` en el ciclo en que se activa.
+Source-side protocol: AMBA **valid/ready**. `src_valid_i` MUST NOT depend on `src_ready_o`. The transfer occurs on the edge where both are 1. The destination side has no backpressure: the consumer MUST accept `dst_valid_o` in the cycle in which it asserts.
 
 ### 4.5 `cdckit_afifo`
 
-**Puerto de escritura (dominio `wclk_i`)**
+**Write port (`wclk_i` domain)**
 
-| Señal | Dir | Ancho | Reset | Descripción |
+| Signal | Dir | Width | Reset | Description |
 |---|---|---|---|---|
-| `wclk_i` | in | 1 | — | Reloj de escritura. |
-| `wrst_ni` | in | 1 | — | Reset del dominio de escritura (ver RST-004). |
-| `wr_en_i` | in | 1 | — | Petición de escritura. Se ignora si `full_o = 1`. |
-| `wr_data_i` | in | `DATA_W` | — | Dato a escribir. |
-| `full_o` | out | 1 | 0 | FIFO llena (conservador). Registrado. |
-| `almost_full_o` | out | 1 | 0 | `wr_level ≥ AF_THRESH`. Registrado. |
-| `wr_level_o` | out | `AW+1` | 0 | Ocupación vista desde el dominio de escritura (≥ ocupación real). |
-| `wr_overflow_o` | out | 1 | 0 | Pulso: hubo `wr_en_i` con `full_o = 1`. Registrado. |
+| `wclk_i` | in | 1 | — | Write clock. |
+| `wrst_ni` | in | 1 | — | Write domain reset (see RST-004). |
+| `wr_en_i` | in | 1 | — | Write request. Ignored if `full_o = 1`. |
+| `wr_data_i` | in | `DATA_W` | — | Data to write. |
+| `full_o` | out | 1 | 0 | FIFO full (conservative). Registered. |
+| `almost_full_o` | out | 1 | 0 | `wr_level ≥ AF_THRESH`. Registered. |
+| `wr_level_o` | out | `AW+1` | 0 | Occupancy seen from the write domain (≥ real occupancy). |
+| `wr_overflow_o` | out | 1 | 0 | Pulse: `wr_en_i` occurred with `full_o = 1`. Registered. |
 
-**Puerto de lectura (dominio `rclk_i`)**
+**Read port (`rclk_i` domain)**
 
-| Señal | Dir | Ancho | Reset | Descripción |
+| Signal | Dir | Width | Reset | Description |
 |---|---|---|---|---|
-| `rclk_i` | in | 1 | — | Reloj de lectura. |
-| `rrst_ni` | in | 1 | — | Reset del dominio de lectura (ver RST-004). |
-| `rd_en_i` | in | 1 | — | Consume la palabra en cabeza. Se ignora si `empty_o = 1`. |
-| `rd_data_o` | out | `DATA_W` | — / 0 | Palabra en cabeza (FWFT). Cero si `OUTPUT_ZERO_IF_EMPTY = 1` y `empty_o = 1`. |
-| `empty_o` | out | 1 | 1 | FIFO vacía (conservador). Registrado. |
-| `almost_empty_o` | out | 1 | 1 | `rd_level ≤ AE_THRESH`. Registrado. |
-| `rd_level_o` | out | `AW+1` | 0 | Ocupación vista desde el dominio de lectura (≤ ocupación real). |
-| `rd_underflow_o` | out | 1 | 0 | Pulso: hubo `rd_en_i` con `empty_o = 1`. Registrado. |
+| `rclk_i` | in | 1 | — | Read clock. |
+| `rrst_ni` | in | 1 | — | Read domain reset (see RST-004). |
+| `rd_en_i` | in | 1 | — | Consumes the head word. Ignored if `empty_o = 1`. |
+| `rd_data_o` | out | `DATA_W` | — / 0 | Head word (FWFT). Zero if `OUTPUT_ZERO_IF_EMPTY = 1` and `empty_o = 1`. |
+| `empty_o` | out | 1 | 1 | FIFO empty (conservative). Registered. |
+| `almost_empty_o` | out | 1 | 1 | `rd_level ≤ AE_THRESH`. Registered. |
+| `rd_level_o` | out | `AW+1` | 0 | Occupancy seen from the read domain (≤ real occupancy). |
+| `rd_underflow_o` | out | 1 | 0 | Pulse: `rd_en_i` occurred with `empty_o = 1`. Registered. |
 
 `AW = $clog2(DEPTH)`.
 
-### 4.6 Requisitos de interfaz
+### 4.6 Interface requirements
 
-| ID | Requisito |
+| ID | Requirement |
 |---|---|
-| INTF-001 | Todas las salidas de banderas y estado de `cdckit_afifo` DEBEN ser registradas (sin camino combinacional desde una entrada). |
-| INTF-002 | `src_ready_o` de `cdckit_hs` DEBE ser registrada y NO DEBE depender combinacionalmente de `src_valid_i`. |
-| INTF-003 | Cada señal DEBE usarse únicamente en el dominio que indica su tabla. Usar `wr_level_o` en `rclk_i` es un cruce no sincronizado. |
-| INTF-004 | El módulo integrador DEBE garantizar que `d_i` de `cdckit_sync` proviene directamente de un flip-flop del dominio origen. |
+| INTF-001 | All flag and status outputs of `cdckit_afifo` MUST be registered (no combinational path from an input). |
+| INTF-002 | `src_ready_o` of `cdckit_hs` MUST be registered and MUST NOT depend combinationally on `src_valid_i`. |
+| INTF-003 | Each signal MUST be used only in the domain indicated in its table. Using `wr_level_o` in `rclk_i` is an unsynchronized crossing. |
+| INTF-004 | The integrating module MUST guarantee that `d_i` of `cdckit_sync` comes directly from a flip-flop in the source domain. |
 
-### 4.7 Diagramas de tiempo
+### 4.7 Timing diagrams
 
-**Escritura en FIFO vacía y primera lectura** (`NUM_STAGES = 2`, `rclk` más rápido que `wclk`)
+**Write into an empty FIFO and first read** (`NUM_STAGES = 2`, `rclk` faster than `wclk`)
 
-![Cronograma escritura en FIFO vacía y primera lectura](img/fig03_afifo_write_to_read.png)
-*Figura 3 — Latencia escritura→lectura: de `NUM_STAGES+1` a `NUM_STAGES+2` flancos de `rclk` tras el flanco de `wclk` que acepta la escritura.*
+![Write into empty FIFO and first read](img/fig03_afifo_write_to_read.png)
+*Figure 3 — Write→read latency: `NUM_STAGES+1` to `NUM_STAGES+2` `rclk` edges after the `wclk` edge that accepts the write.*
 
-**Transferencia por `cdckit_hs`**
+**Transfer through `cdckit_hs`**
 
-![Cronograma del handshake de 4 fases](img/fig04_hs_handshake.png)
-*Figura 4 — Handshake de 4 fases.*
+![4-phase handshake waveform](img/fig04_hs_handshake.png)
+*Figure 4 — 4-phase handshake.*
 
 ---
 
-## 5. Parámetros de configuración
+## 5. Configuration parameters
 
-| Módulo | Parámetro | Tipo | Rango | Defecto | Descripción |
+| Module | Parameter | Type | Range | Default | Description |
 |---|---|---|---|---|---|
-| todos | `NUM_STAGES` | int | 2–4 | 2 | Etapas de sincronización. Se elige con el análisis de MTBF (Anexo A). |
-| `cdckit_sync` | `WIDTH` | int | ≥ 1 | 1 | Número de bits independientes. |
-| `cdckit_sync` | `RESET_VAL` | logic [WIDTH-1:0] | — | `'0` | Valor de salida durante el reset. |
-| `cdckit_hs` | `DATA_W` | int | ≥ 1 | 32 | Ancho de la palabra. |
-| `cdckit_afifo` | `DATA_W` | int | ≥ 1 | 72 | Ancho de la palabra. |
-| `cdckit_afifo` | `DEPTH` | int | potencia de 2, ≥ 4 | 32 | Número de entradas. |
-| `cdckit_afifo` | `AF_THRESH` | int | 1 … `DEPTH` | `DEPTH-4` (`DEPTH-1` si `DEPTH = 4`) | Umbral de `almost_full_o` (≥). |
-| `cdckit_afifo` | `AE_THRESH` | int | 0 … `DEPTH-1` | 2 | Umbral de `almost_empty_o` (≤). |
-| `cdckit_afifo` | `OUTPUT_ZERO_IF_EMPTY` | bit | 0 / 1 | 0 | Fuerza `rd_data_o = 0` con la FIFO vacía. |
+| all | `NUM_STAGES` | int | 2–4 | 2 | Synchronization stages. Chosen with the MTBF analysis (Annex A). |
+| `cdckit_sync` | `WIDTH` | int | ≥ 1 | 1 | Number of independent bits. |
+| `cdckit_sync` | `RESET_VAL` | logic [WIDTH-1:0] | — | `'0` | Output value during reset. |
+| `cdckit_hs` | `DATA_W` | int | ≥ 1 | 32 | Word width. |
+| `cdckit_afifo` | `DATA_W` | int | ≥ 1 | 72 | Word width. |
+| `cdckit_afifo` | `DEPTH` | int | power of 2, ≥ 4 | 32 | Number of entries. |
+| `cdckit_afifo` | `AF_THRESH` | int | 1 … `DEPTH` | `DEPTH-4` (`DEPTH-1` if `DEPTH = 4`) | `almost_full_o` threshold (≥). |
+| `cdckit_afifo` | `AE_THRESH` | int | 0 … `DEPTH-1` | 2 | `almost_empty_o` threshold (≤). |
+| `cdckit_afifo` | `OUTPUT_ZERO_IF_EMPTY` | bit | 0 / 1 | 0 | Forces `rd_data_o = 0` while the FIFO is empty. |
 
-| ID | Requisito |
+| ID | Requirement |
 |---|---|
-| PARAM-001 | La IP DEBE detener la elaboración (`$fatal` de elaboración dentro de un bloque `generate`) si `DEPTH` no es potencia de 2 o es menor que 4, tanto en `xelab` como en `synth_design` (OI-10). |
-| PARAM-002 | La IP DEBE detener la elaboración si `NUM_STAGES` está fuera de 2–4. |
-| PARAM-003 | La IP DEBE detener la elaboración si `AF_THRESH` o `AE_THRESH` están fuera de rango. |
+| PARAM-001 | The IP MUST stop elaboration (elaboration-time `$fatal` inside a `generate` block) if `DEPTH` is not a power of 2 or is less than 4, both in `xelab` and in `synth_design` (OI-10). |
+| PARAM-002 | The IP MUST stop elaboration if `NUM_STAGES` is outside 2–4. |
+| PARAM-003 | The IP MUST stop elaboration if `AF_THRESH` or `AE_THRESH` are out of range. |
 
-**Justificación.**
+**Rationale.**
 
-- `DEPTH ≥ 4`: la comparación de `full` invierte los dos bits más significativos del puntero Gray y requiere `AW ≥ 2`.
-- `DEPTH` potencia de 2: la secuencia Gray DEBE cerrar el ciclo cambiando un solo bit.
-- `OUTPUT_ZERO_IF_EMPTY = 0` por defecto: el enmascarado añade `DATA_W` compuertas AND en el camino de lectura. Se recomienda habilitarlo cuando `rd_data_o` alimenta lógica que no está calificada por `empty_o`; así se evita que `report_cdc` reporte un camino de datos no calificado en el consumidor.
+- `DEPTH ≥ 4`: the `full` comparison inverts the two most significant bits of the Gray pointer and requires `AW ≥ 2`.
+- `DEPTH` power of 2: the Gray sequence MUST close the cycle with a single-bit change.
+- `OUTPUT_ZERO_IF_EMPTY = 0` by default: the masking adds `DATA_W` AND gates to the read path. Enabling it is recommended when `rd_data_o` drives logic not qualified by `empty_o`; this prevents `report_cdc` from reporting an unqualified data path in the consumer.
 
 ---
 
-## 6. Relojes y resets
+## 6. Clocks and resets
 
-### 6.1 Relojes
+### 6.1 Clocks
 
-| ID | Requisito |
+| ID | Requirement |
 |---|---|
-| CLK-001 | Los relojes de cada primitiva PUEDEN no tener ninguna relación de frecuencia ni de fase. |
-| CLK-002 | La IP DEBE funcionar correctamente con cualquier relación `f_src / f_dst` dentro de [1/16, 16]. Fuera de ese rango la funcionalidad se mantiene, pero no se verifica en la versión 1.0. |
-| CLK-003 | La IP NO DEBE generar, dividir ni gatear relojes. |
-| CLK-004 | Si dos dominios comparten frecuencia nominal con fuentes distintas (p. ej. ±100 ppm), la IP DEBE funcionar sin pérdida. La compensación de tasa (inserción o eliminación de idles) es responsabilidad del sistema. |
+| CLK-001 | The clocks of each primitive MAY have no frequency or phase relationship at all. |
+| CLK-002 | The IP MUST operate correctly with any `f_src / f_dst` ratio within [1/16, 16]. Outside that range functionality is preserved but not verified in version 1.0. |
+| CLK-003 | The IP MUST NOT generate, divide or gate clocks. |
+| CLK-004 | If two domains share a nominal frequency with different sources (e.g. ±100 ppm), the IP MUST operate without loss. Rate compensation (idle insertion or removal) is the responsibility of the system. |
 
 ### 6.2 Resets
 
-| ID | Requisito |
+| ID | Requirement |
 |---|---|
-| RST-001 | Todos los flip-flops de control DEBEN usar reset asíncrono activo bajo, liberado de forma síncrona en su dominio mediante `cdckit_rst_sync`. En Artix-7 se mapean a `FDCE`/`FDPE`; se mantiene el reset asíncrono porque FUNC-003 exige aserción sin reloj y por portabilidad ASIC. |
-| RST-002 | Los flip-flops de datos (memoria de la FIFO, registro de retención de `cdckit_hs`) PUEDEN no tener reset. Su contenido nunca se observa sin una bandera de validez reseteada. |
-| RST-003 | Cada dominio de reloj DEBE recibir su propia instancia de `cdckit_rst_sync`. |
-| RST-004 | Para `cdckit_afifo`, `wrst_ni` y `rrst_ni` DEBEN activarse con solapamiento temporal de al menos `NUM_STAGES+1` ciclos del reloj más lento, y la FIFO DEBE considerarse vacía tras la liberación. |
-| RST-005 | Para `cdckit_hs`, el reset de un solo dominio PUEDE perder la transferencia en curso, pero NO DEBE generar un `dst_valid_o` espurio. |
-| RST-006 | Para `cdckit_pulse_sync`, el reset solo del dominio destino PUEDE perder eventos en curso, pero NO DEBE generar un `pulse_dst_o` espurio. El reset solo del dominio origen PUEDE generar como máximo un `pulse_dst_o` espurio (ver OI-07). |
+| RST-001 | All control flip-flops MUST use an active-low asynchronous reset, released synchronously in their domain through `cdckit_rst_sync`. On Artix-7 they map to `FDCE`/`FDPE`; the asynchronous reset is kept because FUNC-003 requires assertion without a clock, and for ASIC portability. |
+| RST-002 | Data flip-flops (FIFO memory, `cdckit_hs` holding register) MAY have no reset. Their contents are never observed without a reset validity flag. |
+| RST-003 | Each clock domain MUST receive its own `cdckit_rst_sync` instance. |
+| RST-004 | For `cdckit_afifo`, `wrst_ni` and `rrst_ni` MUST be asserted with a time overlap of at least `NUM_STAGES+1` cycles of the slower clock, and the FIFO MUST be considered empty after release. |
+| RST-005 | For `cdckit_hs`, a single-domain reset MAY lose the transfer in progress, but MUST NOT generate a spurious `dst_valid_o`. |
+| RST-006 | For `cdckit_pulse_sync`, a destination-only reset MAY lose in-flight events, but MUST NOT generate a spurious `pulse_dst_o`. A source-only reset MAY generate at most one spurious `pulse_dst_o` (see OI-07). |
 
-### 6.3 Secuencia de reset de la FIFO
+### 6.3 FIFO reset sequence
 
-![Secuencia de reset de la FIFO](img/fig05_afifo_reset_sequence.png)
-*Figura 5 — Secuencia de reset soportada.*
+![FIFO reset sequence](img/fig05_afifo_reset_sequence.png)
+*Figure 5 — Supported reset sequence.*
 
-**Limitación.** El reset de un solo dominio de la FIFO con el otro activo deja punteros incoherentes entre dominios: es un Reset Domain Crossing no soportado en la versión 1.0. El integrador DEBE aplicar la secuencia de la Figura 5. Ver OI-02.
+**Limitation.** Resetting a single FIFO domain while the other is active leaves the pointers inconsistent between domains: this is a Reset Domain Crossing not supported in version 1.0. The integrator MUST apply the sequence in Figure 5. See OI-02.
 
 ---
 
-## 7. Rendimiento y latencias
+## 7. Performance and latency
 
-### 7.1 Requisitos de rendimiento
+### 7.1 Performance requirements
 
-| ID | Requisito |
+| ID | Requirement |
 |---|---|
-| PERF-001 | `cdckit_afifo` DEBE aceptar una escritura por ciclo de `wclk_i` mientras `full_o = 0` y entregar una lectura por ciclo de `rclk_i` mientras `empty_o = 0`. |
-| PERF-002 | Con `NUM_STAGES = 2`, relojes iguales y tráfico continuo, `cdckit_afifo` DEBERÍA sostener 1 palabra/ciclo sin que `full_o` se active si `DEPTH ≥ 8`. Valor a confirmar en verificación (OI-03). |
-| PERF-003 | `cdckit_pulse_sync` garantiza la entrega de cada evento si la separación entre dos pulsos consecutivos del origen es ≥ `3·T_dst + 2·T_src`. Con separaciones menores, pulsos consecutivos PUEDEN fusionarse en uno. |
-| PERF-004 | `cdckit_hs` DEBE completar una transferencia, de `src_valid_i && src_ready_o` hasta el nuevo `src_ready_o = 1`, en ≤ `T_hs = 2·(NUM_STAGES+1)·(T_src + T_dst) + 2·T_src`. |
-| PERF-005 | En la plataforma de referencia (§1.3), el arnés de implementación (§16.4) DEBERÍA cerrar timing tras `route_design` con `wclk` = 156.25 MHz y `rclk` = 250 MHz: WNS ≥ 0, WHS ≥ 0, TPWS ≥ 0 y `report_bus_skew` sin violaciones. Si `rclk` = 250 MHz no cierra en grado -1, el requisito se evalúa a la Fmax obtenida según PERF-006 (OI-13). |
-| PERF-006 | DEBERÍA documentarse la Fmax de cada dominio, obtenida reduciendo el período de su reloj en pasos de 0.1 ns hasta que WNS < 0. |
-| PERF-007 | DEBERÍAN documentarse los recursos y la Fmax de cada primitiva frente a su macro XPM equivalente (Tabla 8-1), implementadas en el mismo arnés. |
+| PERF-001 | `cdckit_afifo` MUST accept one write per `wclk_i` cycle while `full_o = 0` and deliver one read per `rclk_i` cycle while `empty_o = 0`. |
+| PERF-002 | With `NUM_STAGES = 2`, equal clocks and continuous traffic, `cdckit_afifo` SHOULD sustain 1 word/cycle without asserting `full_o` if `DEPTH ≥ 8`. Value to be confirmed in verification (OI-03). |
+| PERF-003 | `cdckit_pulse_sync` guarantees delivery of every event if the spacing between two consecutive source pulses is ≥ `3·T_dst + 2·T_src`. With smaller spacing, consecutive pulses MAY merge into one. |
+| PERF-004 | `cdckit_hs` MUST complete a transfer, from `src_valid_i && src_ready_o` to the new `src_ready_o = 1`, in ≤ `T_hs = 2·(NUM_STAGES+1)·(T_src + T_dst) + 2·T_src`. |
+| PERF-005 | On the reference platform (§1.3), the implementation harness (§16.4) SHOULD close timing after `route_design` with `wclk` = 156.25 MHz and `rclk` = 250 MHz: WNS ≥ 0, WHS ≥ 0, TPWS ≥ 0 and `report_bus_skew` without violations. If `rclk` = 250 MHz does not close in speed grade -1, the requirement is evaluated at the Fmax obtained per PERF-006 (OI-13). |
+| PERF-006 | The Fmax of each domain SHOULD be documented, obtained by reducing its clock period in 0.1 ns steps until WNS < 0. |
+| PERF-007 | The resources and Fmax of each primitive versus its equivalent XPM macro (Table 8-1), implemented in the same harness, SHOULD be documented. |
 
-### 7.2 Tabla de latencias (`NUM_STAGES = N`)
+### 7.2 Latency table (`NUM_STAGES = N`)
 
-| Camino | Latencia mínima | Latencia máxima | Referencia temporal |
+| Path | Minimum latency | Maximum latency | Time reference |
 |---|---|---|---|
-| `cdckit_sync`: `d_i` → `q_o` | N·T_dst | (N+1)·T_dst | Cambio de `d_i` |
-| `cdckit_rst_sync`: aserción | 0 (combinacional asíncrona) | t_clr→q | Flanco de bajada de `arst_ni` |
-| `cdckit_rst_sync`: liberación | N flancos de `clk_i` | N+1 flancos | Flanco de subida de `arst_ni` |
-| `cdckit_pulse_sync`: evento → `pulse_dst_o` | (N+1) flancos de `clk_dst` | (N+2) flancos | Flanco de `clk_src` que muestrea el pulso |
-| `cdckit_hs`: aceptación → `dst_valid_o` | (N+1) flancos de `clk_dst` | (N+2) flancos | Flanco de `clk_src` de aceptación |
-| `cdckit_afifo`: escritura → `empty_o = 0` | (N+1) flancos de `rclk` | (N+2) flancos | Flanco de `wclk` que acepta la escritura |
-| `cdckit_afifo`: lectura → `full_o = 0` | (N+1) flancos de `wclk` | (N+2) flancos | Flanco de `rclk` que acepta la lectura |
-| `cdckit_afifo`: `rd_en_i` → siguiente `rd_data_o` | 1 flanco de `rclk` | 1 flanco | — |
+| `cdckit_sync`: `d_i` → `q_o` | N·T_dst | (N+1)·T_dst | Change of `d_i` |
+| `cdckit_rst_sync`: assertion | 0 (asynchronous, combinational) | t_clr→q | Falling edge of `arst_ni` |
+| `cdckit_rst_sync`: release | N `clk_i` edges | N+1 edges | Rising edge of `arst_ni` |
+| `cdckit_pulse_sync`: event → `pulse_dst_o` | (N+1) `clk_dst` edges | (N+2) edges | `clk_src` edge that samples the pulse |
+| `cdckit_hs`: acceptance → `dst_valid_o` | (N+1) `clk_dst` edges | (N+2) edges | `clk_src` acceptance edge |
+| `cdckit_afifo`: write → `empty_o = 0` | (N+1) `rclk` edges | (N+2) edges | `wclk` edge that accepts the write |
+| `cdckit_afifo`: read → `full_o = 0` | (N+1) `wclk` edges | (N+2) edges | `rclk` edge that accepts the read |
+| `cdckit_afifo`: `rd_en_i` → next `rd_data_o` | 1 `rclk` edge | 1 edge | — |
 
-El flanco adicional del máximo cubre dos efectos: la incertidumbre de muestreo (fase arbitraria entre relojes) y la posibilidad de que la primera etapa resuelva la metaestabilidad hacia el valor anterior.
+The extra edge in the maximum covers two effects: sampling uncertainty (arbitrary phase between clocks) and the possibility that the first stage resolves metastability toward the previous value.
 
-### 7.3 Dimensionamiento de la profundidad
+### 7.3 Depth sizing
 
-Para una ráfaga de `B` palabras escritas a `f_w` mientras se lee continuamente a `f_r < f_w`, sin backpressure en el escritor:
+For a burst of `B` words written at `f_w` while reading continuously at `f_r < f_w`, with no backpressure on the writer:
 
 ```
-DEPTH ≥ B · (1 − f_r / f_w) + (N + 2)            ; redondeado a la siguiente potencia de 2
+DEPTH ≥ B · (1 − f_r / f_w) + (N + 2)            ; rounded up to the next power of 2
 ```
 
-Ejemplo NetSwitch-4, lado TX (el núcleo escribe a 250 MHz y la MAC lee a 156.25 MHz), trama de 1518 B en 190 beats de 8 B:
+NetSwitch-4 example, TX side (the core writes at 250 MHz and the MAC reads at 156.25 MHz), 1518 B frame in 190 beats of 8 B:
 
 ```
 DEPTH ≥ 190 · (1 − 156.25/250) + 4 = 190 · 0.375 + 4 = 75.25   →   DEPTH = 128
 ```
 
-El lado RX (escritura a 156.25 MHz, lectura a 250 MHz) solo absorbe stalls del núcleo. Su profundidad se fija por la duración máxima de stall que especifique el núcleo: configuración de referencia `DEPTH = 32`.
+The RX side (write at 156.25 MHz, read at 250 MHz) only absorbs core stalls. Its depth is set by the maximum stall duration specified by the core: reference configuration `DEPTH = 32`.
 
 ---
 
-## 8. Requisitos de integración
+## 8. Integration requirements
 
-| ID | Requisito |
+| ID | Requirement |
 |---|---|
-| INTG-001 | El integrador NO DEBE insertar lógica combinacional entre el flip-flop origen y el puerto `d_i` de `cdckit_sync`. |
-| INTG-002 | El integrador NO DEBE sincronizar por separado bits que luego se recombinan o interpretan juntos (reconvergencia). Esa información DEBE cruzar por `cdckit_hs` o `cdckit_afifo`. |
-| INTG-003 | El integrador DEBE cargar los archivos XDC con alcance por módulo de la §16 (`read_xdc -unmanaged -ref`, `PROCESSING_ORDER LATE`), de modo que se apliquen a cada instancia. |
-| INTG-004 | El integrador DEBE ejecutar `report_cdc -details` sobre el diseño integrado y justificar con `create_waiver` cada advertencia que quede, con referencia a la §15. |
-| INTG-005 | La primitiva `cdckit_sync` PUEDE sustituirse por `xpm_cdc_array_single` (FPGA) o por una celda sincronizadora de librería (ASIC). La sustitución DEBE preservar el número de etapas. `xpm_cdc_array_single` no tiene reset: la pérdida de `RESET_VAL` DEBE evaluarse en cada uso. |
-| INTG-006 | El consumidor de `rd_data_o` DEBE calificar su uso con `empty_o = 0`, o la instancia DEBE configurarse con `OUTPUT_ZERO_IF_EMPTY = 1`. |
-| INTG-007 | En FPGA, `scan_mode_i` DEBE conectarse a `1'b0` y `scan_rst_ni` a `1'b1`. La síntesis elimina así el mux de test. |
-| INTG-008 | Entre los relojes de una instancia NO DEBEN usarse `set_clock_groups` ni `set_false_path` globales, porque anularían las restricciones de la §16 (STA-001). |
+| INTG-001 | The integrator MUST NOT insert combinational logic between the source flip-flop and the `d_i` port of `cdckit_sync`. |
+| INTG-002 | The integrator MUST NOT separately synchronize bits that are later recombined or interpreted together (reconvergence). Such information MUST cross through `cdckit_hs` or `cdckit_afifo`. |
+| INTG-003 | The integrator MUST load the module-scoped XDC files of §16 (`read_xdc -unmanaged -ref`, `PROCESSING_ORDER LATE`), so that they apply to every instance. |
+| INTG-004 | The integrator MUST run `report_cdc -details` on the integrated design and justify every remaining warning with `create_waiver`, referencing §15. |
+| INTG-005 | The `cdckit_sync` primitive MAY be replaced by `xpm_cdc_array_single` (FPGA) or by a library synchronizer cell (ASIC). The replacement MUST preserve the number of stages. `xpm_cdc_array_single` has no reset: the loss of `RESET_VAL` MUST be evaluated for each use. |
+| INTG-006 | The consumer of `rd_data_o` MUST qualify its use with `empty_o = 0`, or the instance MUST be configured with `OUTPUT_ZERO_IF_EMPTY = 1`. |
+| INTG-008 | Global `set_clock_groups` or `set_false_path` MUST NOT be used between the clocks of an instance, because they would override the constraints of §16 (STA-001). |
 
-| Primitiva `cdckit` | Macro XPM equivalente | Diferencias relevantes |
+| `cdckit` primitive | Equivalent XPM macro | Relevant differences |
 |---|---|---|
-| `cdckit_sync` | `xpm_cdc_single` / `xpm_cdc_array_single` | XPM sin reset; mismo número de etapas configurable. |
-| `cdckit_rst_sync` | `xpm_cdc_async_rst` | XPM sin mux de test. |
-| `cdckit_pulse_sync` | `xpm_cdc_pulse` | `cdckit` añade la ventana de armado (MAS-PLS-5). |
-| `cdckit_hs` | `xpm_cdc_handshake` | `cdckit` expone valid/ready en el origen. |
-| `cdckit_afifo` | `xpm_fifo_async` | `cdckit` añade flags `overflow`/`underflow`, niveles por dominio y `OUTPUT_ZERO_IF_EMPTY`. |
+| `cdckit_sync` | `xpm_cdc_single` / `xpm_cdc_array_single` | XPM has no reset; same configurable number of stages. |
+| `cdckit_rst_sync` | `xpm_cdc_async_rst` | XPM. |
+| `cdckit_pulse_sync` | `xpm_cdc_pulse` | `cdckit` adds the arm window (MAS-PLS-5). |
+| `cdckit_hs` | `xpm_cdc_handshake` | `cdckit` exposes valid/ready on the source side. |
+| `cdckit_afifo` | `xpm_fifo_async` | `cdckit` adds `overflow`/`underflow` flags, per-domain levels and `OUTPUT_ZERO_IF_EMPTY`. |
 
-*Tabla 8-1 — Equivalencias con las macros XPM de Vivado (referencia para PERF-007).*
+*Table 8-1 — Equivalences with Vivado XPM macros (reference for PERF-007).*
 
 ---
 
-# PARTE II — MICRO-ARCHITECTURE SPECIFICATION
+# PART II — MICRO-ARCHITECTURE SPECIFICATION
 
-## 9. Jerarquía de módulos
+## 9. Module hierarchy
 
-![Jerarquía de módulos](img/fig06_module_hierarchy.png)
-*Figura 6 — Jerarquía de módulos y archivos RTL.*
+![Module hierarchy](img/fig06_module_hierarchy.png)
+*Figure 6 — Module hierarchy and RTL files.*
 
-Archivos del RTL (todos `.sv`, más la lista de archivos):
+RTL files (all `.sv`, plus the file list):
 
-| Archivo | Contenido |
+| File | Contents |
 |---|---|
-| `rtl/cdckit_pkg.sv` | Funciones `bin2gray`, `gray2bin`, tipos. |
-| `rtl/cdckit_sync.sv` | Primitiva de sincronización. |
-| `rtl/cdckit_rst_sync.sv` | Sincronizador de reset. |
-| `rtl/cdckit_pulse_sync.sv` | Sincronizador de pulsos. |
-| `rtl/cdckit_hs.sv` | Handshake de 4 fases. |
-| `rtl/cdckit_afifo_mem.sv` | Memoria de la FIFO. |
-| `rtl/cdckit_afifo_wptr.sv` | Lógica de puntero de escritura. |
-| `rtl/cdckit_afifo_rptr.sv` | Lógica de puntero de lectura. |
-| `rtl/cdckit_afifo.sv` | Top de la FIFO. |
-| `rtl/cdckit_sva.sv` | Checkers SVA conectados con `bind` (solo simulación). |
-| `rtl/cdckit_rtl.f` | Lista del RTL sintetizable (`cdckit_sva.sv` se añade solo en simulación). |
+| `rtl/cdckit_pkg.sv` | `bin2gray`, `gray2bin` functions, types. |
+| `rtl/cdckit_sync.sv` | Synchronization primitive. |
+| `rtl/cdckit_rst_sync.sv` | Reset synchronizer. |
+| `rtl/cdckit_pulse_sync.sv` | Pulse synchronizer. |
+| `rtl/cdckit_hs.sv` | 4-phase handshake. |
+| `rtl/cdckit_afifo_mem.sv` | FIFO memory. |
+| `rtl/cdckit_afifo_wptr.sv` | Write pointer logic. |
+| `rtl/cdckit_afifo_rptr.sv` | Read pointer logic. |
+| `rtl/cdckit_afifo.sv` | FIFO top. |
+| `rtl/cdckit_sva.sv` | SVA checkers attached with `bind` (simulation only). |
+| `rtl/cdckit_rtl.f` | Synthesizable RTL file list (`cdckit_sva.sv` is added in simulation only). |
 
-Los entregables de la fase de RTL son únicamente archivos `.sv`. El arnés de implementación (`impl/cdckit_impl_top.sv`), los archivos XDC (`constraints/*.xdc`) y el script de Vivado (`scripts/vivado_impl.tcl`) se citan en la §16 como destino de fases posteriores. Los `covergroup` y el entorno de verificación pertenecen a la fase 3 y 4.
+The deliverables of the RTL phase are `.sv` files only. The implementation harness (`impl/cdckit_impl_top.sv`), the XDC files (`constraints/*.xdc`) and the Vivado script (`scripts/vivado_impl.tcl`) are referenced in §16 as targets of later phases. The `covergroup`s and the verification environment belong to phases 3 and 4.
 
 ---
 
-## 10. `cdckit_sync` — Sincronizador de nivel
+## 10. `cdckit_sync` — Level synchronizer
 
-### 10.1 Estructura
+### 10.1 Structure
 
-![Estructura de cdckit_sync](img/fig07_cdckit_sync.png)
-*Figura 7 — Estructura de `cdckit_sync`.*
+![cdckit_sync structure](img/fig07_cdckit_sync.png)
+*Figure 7 — Structure of `cdckit_sync`.*
 
-### 10.2 Decisiones de microarquitectura
+### 10.2 Micro-architecture decisions
 
-| ID | Decisión | Justificación |
+| ID | Decision | Rationale |
 |---|---|---|
-| MAS-SYNC-1 | Vector de registros `logic [NUM_STAGES-1:0][WIDTH-1:0] s_q` con atributos `(* ASYNC_REG = "TRUE", DONT_TOUCH = "TRUE" *)`. | En Vivado, `ASYNC_REG` impide el empaquetado en SRL y el retiming, y coloca las etapas en el mismo slice para maximizar `t_r`; es la marca con la que `report_cdc` reconoce el sincronizador. `DONT_TOUCH` impide su replicación y fusión. |
-| MAS-SYNC-2 | Ninguna compuerta entre etapas. | Maximiza el tiempo de resolución `t_r`. |
-| MAS-SYNC-3 | Reset asíncrono a `RESET_VAL`. | Estado conocido desde el primer ciclo de reloj. |
-| MAS-SYNC-4 | Implementación aislada en su propio módulo. | Punto único de sustitución (`xpm_cdc_array_single` o celda de librería, INTG-005) y de reconocimiento por `report_cdc`. |
+| MAS-SYNC-1 | Register vector `logic [NUM_STAGES-1:0][WIDTH-1:0] s_q` with attributes `(* ASYNC_REG = "TRUE", DONT_TOUCH = "TRUE" *)`. | In Vivado, `ASYNC_REG` prevents SRL packing and retiming, and places the stages in the same slice to maximize `t_r`; it is the mark by which `report_cdc` recognizes the synchronizer. `DONT_TOUCH` prevents replication and merging. |
+| MAS-SYNC-2 | No gates between stages. | Maximizes the resolution time `t_r`. |
+| MAS-SYNC-3 | Asynchronous reset to `RESET_VAL`. | Known state from the first clock cycle. |
+| MAS-SYNC-4 | Implementation isolated in its own module. | Single point of replacement (`xpm_cdc_array_single` or library cell, INTG-005) and of recognition by `report_cdc`. |
 
-### 10.3 Recursos
+### 10.3 Resources
 
 `NUM_STAGES × WIDTH` flip-flops (`FDCE`); 0 LUT.
 
 ---
 
-## 11. `cdckit_rst_sync` — Sincronizador de reset
+## 11. `cdckit_rst_sync` — Reset synchronizer
 
-### 11.1 Estructura
+### 11.1 Structure
 
-![Estructura de cdckit_rst_sync](img/fig08_cdckit_rst_sync.png)
-*Figura 8 — Estructura de `cdckit_rst_sync`.*
+![cdckit_rst_sync structure](img/fig08_cdckit_rst_sync.png)
+*Figure 8 — Structure of `cdckit_rst_sync`.*
 
-### 11.2 Decisiones de microarquitectura
+### 11.2 Micro-architecture decisions
 
-| ID | Decisión | Justificación |
+| ID | Decision | Rationale |
 |---|---|---|
-| MAS-RST-1 | `arst_ni` conectado directamente a la entrada CLR de todas las etapas. | Aserción inmediata, incluso sin reloj activo (FUNC-003). |
-| MAS-RST-2 | Las etapas propagan una constante `1'b1`. | La liberación se alinea a `clk_i` tras `NUM_STAGES` flancos. |
-| MAS-RST-3 | Mux de test a la salida, seleccionado por `scan_mode_i`. | Portabilidad ASIC: da al ATPG control directo del reset (DFT-002). En FPGA, con `scan_mode_i = 1'b0` (INTG-007), la síntesis elimina el mux y `rst_no` sale directamente de la última etapa. |
-| MAS-RST-4 | En ASIC, la celda del mux DEBE ser una celda de librería designada (*don't touch*). | Evita que la síntesis la reestructure en una lógica que pueda glitchear sobre la red de reset. No aplica en FPGA. |
-| MAS-RST-5 | Equivalente de referencia: `xpm_cdc_async_rst`. | Se compara su clasificación en `report_cdc` y sus recursos (PERF-007). |
+| MAS-RST-1 | `arst_ni` connected directly to the CLR input of every stage. | Immediate assertion, even with no active clock (FUNC-003). |
+| MAS-RST-2 | The stages propagate a constant `1'b1`. | The release is aligned to `clk_i` after `NUM_STAGES` edges. |
+| MAS-RST-3 | Reference equivalent: `xpm_cdc_async_rst`. | Its `report_cdc` classification and its resources are compared (PERF-007). |
 
 ---
 
-## 12. `cdckit_pulse_sync` — Sincronizador de pulsos (toggle)
+## 12. `cdckit_pulse_sync` — Pulse synchronizer (toggle)
 
-### 12.1 Estructura
+### 12.1 Structure
 
-![Estructura de cdckit_pulse_sync](img/fig09_cdckit_pulse_sync.png)
-*Figura 9 — Estructura de `cdckit_pulse_sync` con ventana de armado.*
+![cdckit_pulse_sync structure](img/fig09_cdckit_pulse_sync.png)
+*Figure 9 — Structure of `cdckit_pulse_sync` with arm window.*
 
-### 12.2 Lógica
+### 12.2 Logic
 
-| Dominio | Ecuación |
+| Domain | Equation |
 |---|---|
-| Origen | `tgl_q <= tgl_q ^ pulse_src_i;` |
-| Destino | `arm_q <= {arm_q[N:0], 1'b1};`  `tgl_d <= tgl_s;`  `pulse_dst_q <= arm_q[N+1] & (tgl_s ^ tgl_d);` |
-| Salida | `pulse_dst_o = pulse_dst_q;` (registrada; INTF-001 aplicado por coherencia) |
+| Source | `tgl_q <= tgl_q ^ pulse_src_i;` |
+| Destination | `arm_q <= {arm_q[N:0], 1'b1};`  `tgl_d <= tgl_s;`  `pulse_dst_q <= arm_q[N+1] & (tgl_s ^ tgl_d);` |
+| Output | `pulse_dst_o = pulse_dst_q;` (registered; INTF-001 applied for consistency) |
 
-### 12.3 Decisiones de microarquitectura
+### 12.3 Micro-architecture decisions
 
-| ID | Decisión | Justificación |
+| ID | Decision | Rationale |
 |---|---|---|
-| MAS-PLS-1 | Cruza un nivel (`tgl_q`), nunca el pulso. | Un pulso más corto que `T_dst` puede no ser muestreado. |
-| MAS-PLS-2 | `tgl_q` es un flip-flop. | Ninguna lógica combinacional alimenta el sincronizador (INTG-001). |
-| MAS-PLS-3 | Salida registrada. | Libre de glitches, a costa de un flanco de latencia (§7.2). |
-| MAS-PLS-4 | Sin canal de confirmación. | Coste mínimo. La restricción de espaciado (PERF-003) la garantiza el integrador y la verifica una aserción `assume` en la interfaz. |
-| MAS-PLS-5 | Ventana de armado de `NUM_STAGES+2` ciclos tras el reset del destino (`arm_q`). | Tras un reset solo del destino, el sincronizador arranca en 0 y converge al valor actual de `tgl_q`, que el detector vería como un flanco. La ventana cubre el peor caso de convergencia: N etapas, 1 flanco por metaestabilidad y 1 de `tgl_d` (RST-006). |
+| MAS-PLS-1 | A level (`tgl_q`) crosses, never the pulse. | A pulse shorter than `T_dst` might not be sampled. |
+| MAS-PLS-2 | `tgl_q` is a flip-flop. | No combinational logic drives the synchronizer (INTG-001). |
+| MAS-PLS-3 | Registered output. | Glitch-free, at the cost of one edge of latency (§7.2). |
+| MAS-PLS-4 | No acknowledge channel. | Minimum cost. The spacing constraint (PERF-003) is guaranteed by the integrator and checked by an `assume` assertion at the interface. |
+| MAS-PLS-5 | Arm window of `NUM_STAGES+2` cycles after destination reset (`arm_q`). | After a destination-only reset, the synchronizer starts at 0 and converges to the current value of `tgl_q`, which the detector would see as an edge. The window covers the worst-case convergence: N stages, 1 edge for metastability and 1 for `tgl_d` (RST-006). |
 
 ---
 
-## 13. `cdckit_hs` — Transferencia multibit por handshake de 4 fases
+## 13. `cdckit_hs` — Multibit transfer via 4-phase handshake
 
-### 13.1 Estructura
+### 13.1 Structure
 
-![Estructura de cdckit_hs](img/fig10_cdckit_hs.png)
-*Figura 10 — Estructura de `cdckit_hs` y cruces CDC-X04 a CDC-X06.*
+![cdckit_hs structure](img/fig10_cdckit_hs.png)
+*Figure 10 — Structure of `cdckit_hs` and crossings CDC-X04 to CDC-X06.*
 
-### 13.2 FSM del dominio origen
+### 13.2 Source-domain FSM
 
-| Estado | `src_ready_o` | `req_q` | Transición |
+| State | `src_ready_o` | `req_q` | Transition |
 |---|---|---|---|
-| `S_IDLE` | 1 | 0 | `src_valid_i` → `S_REQ`; además `hold_q <= src_data_i` |
+| `S_IDLE` | 1 | 0 | `src_valid_i` → `S_REQ`; also `hold_q <= src_data_i` |
 | `S_REQ` | 0 | 1 | `ack_s == 1` → `S_DROP` |
 | `S_DROP` | 0 | 0 | `ack_s == 0` → `S_IDLE` |
 
-![FSM del dominio origen de cdckit_hs](img/fig11_cdckit_hs_fsm.png)
-*Figura 11 — FSM del dominio origen de `cdckit_hs`.*
+![cdckit_hs source-domain FSM](img/fig11_cdckit_hs_fsm.png)
+*Figure 11 — Source-domain FSM of `cdckit_hs`.*
 
-**Codificación:** one-hot de 3 bits. `src_ready_o` y `req_q` se toman directamente de un bit de estado (salidas Moore registradas, sin decodificación). Con `default` hacia `S_IDLE`. La sentencia es `case` y no `unique case`: con `unique` la síntesis puede asumir que los estados ilegales no ocurren y eliminar la lógica de recuperación. La codificación escrita se conserva con `FSM_ENCODING = "none"` (MAS-HS-6).
+**Encoding:** 3-bit one-hot, held in `current_state` (next value `nxt_state`). `src_ready_o` and `req_q` are taken directly from a state bit (registered Moore outputs, no decoding). `default` returns to `S_IDLE`. The statement is `case`, not `unique case`: with `unique`, synthesis may assume illegal states never occur and remove the recovery logic. The written encoding is preserved with `FSM_ENCODING = "none"` (MAS-HS-6).
 
-### 13.3 Lógica del dominio destino
+### 13.3 Destination-domain logic
 
-| Señal | Ecuación |
+| Signal | Equation |
 |---|---|
 | `ack_q` | `ack_q <= req_s;` |
 | `dst_valid_q` | `dst_valid_q <= req_s & ~ack_q;` |
 | `dst_data_q` | `if (req_s & ~ack_q) dst_data_q <= hold_q;` |
 
-### 13.4 Decisiones de microarquitectura
+### 13.4 Micro-architecture decisions
 
-| ID | Decisión | Justificación |
+| ID | Decision | Rationale |
 |---|---|---|
-| MAS-HS-1 | Registro de retención en el origen. | Desacopla `src_data_i` del protocolo: el emisor puede cambiar su dato tras la aceptación sin afectar la transferencia en curso. |
-| MAS-HS-2 | `hold_q` solo se carga en `S_IDLE`. | Garantiza estabilidad durante las fases 1–3, cuando el destino puede muestrear. |
-| MAS-HS-3 | El destino captura en el flanco de subida de `req_s` (`req_s & ~ack_q`). | Una única captura por transferencia; `dst_valid_o` dura exactamente un ciclo destino. |
-| MAS-HS-4 | `ack_q` es una copia retrasada de `req_s`. | Sin FSM en el destino; mínima lógica. |
-| MAS-HS-5 | Salidas del destino registradas. | `dst_valid_o` y `dst_data_o` cambian en el mismo flanco. |
-| MAS-HS-6 | `state_q` DEBE llevar `(* FSM_ENCODING = "none" *)`. | `req_q` cruza de dominio directamente desde un bit de estado. Si Vivado extrajera y recodificara la FSM, `req_q` pasaría a ser lógica combinacional delante del sincronizador, que es justo lo que prohíbe INTG-001 y lo que `report_cdc` clasifica como crítico. |
+| MAS-HS-1 | Holding register at the source. | Decouples `src_data_i` from the protocol: the sender may change its data after acceptance without affecting the transfer in progress. |
+| MAS-HS-2 | `hold_q` is loaded only in `S_IDLE`. | Guarantees stability during phases 1–3, when the destination may sample. |
+| MAS-HS-3 | The destination captures on the rising edge of `req_s` (`req_s & ~ack_q`). | A single capture per transfer; `dst_valid_o` lasts exactly one destination cycle. |
+| MAS-HS-4 | `ack_q` is a delayed copy of `req_s`. | No FSM at the destination; minimal logic. |
+| MAS-HS-5 | Registered destination outputs. | `dst_valid_o` and `dst_data_o` change on the same edge. |
+| MAS-HS-6 | `current_state` MUST carry `(* FSM_ENCODING = "none" *)`. | `req_q` crosses domains directly from a state bit. If Vivado extracted and re-encoded the FSM, `req_q` would become combinational logic in front of the synchronizer, which is exactly what INTG-001 forbids and what `report_cdc` classifies as critical. |
 
 ---
 
-## 14. `cdckit_afifo` — FIFO asíncrona
+## 14. `cdckit_afifo` — Asynchronous FIFO
 
-### 14.1 Diagrama de bloques
+### 14.1 Block diagram
 
-![Microarquitectura de cdckit_afifo](img/fig12_cdckit_afifo.png)
-*Figura 12 — Microarquitectura de `cdckit_afifo`.*
+![cdckit_afifo micro-architecture](img/fig12_cdckit_afifo.png)
+*Figure 12 — Micro-architecture of `cdckit_afifo`.*
 
-### 14.2 Lógica de puntero de escritura (`cdckit_afifo_wptr`)
+### 14.2 Write pointer logic (`cdckit_afifo_wptr`)
 
-| Señal | Ecuación | Tipo |
+| Signal | Equation | Type |
 |---|---|---|
 | `w_push` | `wr_en_i & ~full_q` | comb |
 | `wbin_d` | `wbin_q + w_push` | comb |
 | `wgray_d` | `bin2gray(wbin_d) = (wbin_d >> 1) ^ wbin_d` | comb |
 | `wq2_rbin` | `gray2bin(wq2_rgray)` | comb |
-| `wlevel_d` | `wbin_d − wq2_rbin` (módulo 2^(AW+1)) | comb |
+| `wlevel_d` | `wbin_d − wq2_rbin` (modulo 2^(AW+1)) | comb |
 | `full_q` | `wgray_d == {~wq2_rgray[AW:AW-1], wq2_rgray[AW-2:0]}` | reg |
 | `almost_full_q` | `wlevel_d >= AF_THRESH` | reg |
 | `wr_level_q` | `wlevel_d` | reg |
@@ -583,9 +581,9 @@ Los entregables de la fase de RTL son únicamente archivos `.sv`. El arnés de i
 | `wbin_q`, `wgray_q` | `wbin_d`, `wgray_d` | reg |
 | `mem_we` | `w_push` | comb → `cdckit_afifo_mem` |
 
-### 14.3 Lógica de puntero de lectura (`cdckit_afifo_rptr`)
+### 14.3 Read pointer logic (`cdckit_afifo_rptr`)
 
-| Señal | Ecuación | Tipo |
+| Signal | Equation | Type |
 |---|---|---|
 | `r_pop` | `rd_en_i & ~empty_q` | comb |
 | `rbin_d` | `rbin_q + r_pop` | comb |
@@ -598,95 +596,95 @@ Los entregables de la fase de RTL son únicamente archivos `.sv`. El arnés de i
 | `rd_underflow_q` | `rd_en_i & empty_q` | reg |
 | `rbin_q`, `rgray_q` | `rbin_d`, `rgray_d` | reg |
 
-### 14.4 Memoria (`cdckit_afifo_mem`)
+### 14.4 Memory (`cdckit_afifo_mem`)
 
-| Aspecto | Especificación |
+| Aspect | Specification |
 |---|---|
-| Implementación | RAM distribuida (LUTRAM) de doble puerto, inferida por Vivado a partir del array `mem_q` sin reset. La lectura asíncrona impide inferir Block RAM. IMPL-003 exige comprobar en `report_utilization` que se infiere LUTRAM y no registros. |
-| Escritura | Síncrona a `wclk_i`, habilitada por `mem_we`, dirección `wbin_q[AW-1:0]`. |
-| Lectura | Asíncrona desde el puerto de lectura de la LUTRAM, dirección `rbin_q[AW-1:0]` (FWFT). Con `DEPTH = 32`, un nivel de LUT. |
-| Salida | `rd_data_o = (OUTPUT_ZERO_IF_EMPTY && empty_q) ? '0 : mem[rbin_q[AW-1:0]]`. |
-| Habilitación | `mem_we` actúa como WE de la LUTRAM. En FPGA no se infieren ICG (§18.2). |
+| Implementation | Dual-port distributed RAM (LUTRAM), inferred by Vivado from the `mem_q` array without reset. The asynchronous read prevents Block RAM inference. IMPL-003 requires checking in `report_utilization` that LUTRAM, not registers, is inferred. |
+| Write | Synchronous to `wclk_i`, enabled by `mem_we`, address `wbin_q[AW-1:0]`. |
+| Read | Asynchronous from the LUTRAM read port, address `rbin_q[AW-1:0]` (FWFT). With `DEPTH = 32`, one LUT level. |
+| Output | `rd_data_o = (OUTPUT_ZERO_IF_EMPTY && empty_q) ? '0 : mem[rbin_q[AW-1:0]]`. |
+| Enable | `mem_we` acts as the LUTRAM WE. No ICGs are inferred on FPGA (§18.2). |
 
-### 14.5 Decisiones de microarquitectura
+### 14.5 Micro-architecture decisions
 
-| ID | Decisión | Justificación |
+| ID | Decision | Rationale |
 |---|---|---|
-| MAS-AF-1 | Punteros de `AW+1` bits. | El bit adicional distingue lleno de vacío sin sacrificar una entrada. |
-| MAS-AF-2 | Se sincronizan los punteros Gray **registrados** (`wgray_q`, `rgray_q`), nunca `wgray_d`. | La salida combinacional de `bin2gray` puede glitchear y cambiar más de un bit durante la evaluación. |
-| MAS-AF-3 | Coexisten dos representaciones por dominio (binaria para direccionar, Gray para cruzar). | Evita convertir Gray→binario en el camino de dirección de la memoria. |
-| MAS-AF-4 | `full` y `empty` se calculan con los punteros *próximos* (`*_d`) y se registran. | Las banderas reflejan la operación del ciclo actual sin un ciclo de retraso adicional, y quedan registradas (INTF-001). |
-| MAS-AF-5 | `full` compara los dos MSB invertidos. | Equivalencia, en código Gray reflejado, de “MSB distinto y resto igual” en binario. |
-| MAS-AF-6 | Los niveles se calculan desde el puntero remoto sincronizado. | `wr_level_o` es una cota superior y `rd_level_o` una cota inferior de la ocupación real. Ambas son seguras para control de flujo. |
-| MAS-AF-7 | Memoria inferida como LUTRAM con lectura asíncrona. | FWFT sin ciclo de latencia adicional. La configuración de referencia pasa de ≈ 2370 a ≈ 66 flip-flops (§18.1). Para `DEPTH × DATA_W` grandes se planea Block RAM con prefetch (OI-01). |
-| MAS-AF-8 | `gray2bin` combinacional. | Cadena XOR de profundidad AW. Si limita timing, se registra `wq2_rbin` / `rq2_wbin` a costa de un ciclo adicional de pesimismo en los niveles (OI-05). |
-| MAS-AF-9 | `wgray_q` y `rgray_q` DEBEN llevar `(* DONT_TOUCH = "TRUE" *)`. | El MSB del puntero Gray es idéntico al MSB binario. Por eso Vivado fusionaría `wgray_q[AW]` con `wbin_q[AW]` (eliminación de registros equivalentes). El flop de lanzamiento del cruce cambiaría de nombre, quedaría sin cubrir por las restricciones de la §16 y alimentaría lógica de su propio dominio además del sincronizador. |
+| MAS-AF-1 | `AW+1`-bit pointers. | The extra bit distinguishes full from empty without sacrificing an entry. |
+| MAS-AF-2 | The **registered** Gray pointers (`wgray_q`, `rgray_q`) are synchronized, never `wgray_d`. | The combinational output of `bin2gray` can glitch and change more than one bit during evaluation. |
+| MAS-AF-3 | Two representations coexist per domain (binary for addressing, Gray for crossing). | Avoids a Gray→binary conversion in the memory address path. |
+| MAS-AF-4 | `full` and `empty` are computed from the *next* pointers (`*_d`) and registered. | The flags reflect the current cycle's operation without an extra cycle of delay, and remain registered (INTF-001). |
+| MAS-AF-5 | `full` compares the two MSBs inverted. | In reflected Gray code, the equivalent of "MSB different and the rest equal" in binary. |
+| MAS-AF-6 | Levels are computed from the synchronized remote pointer. | `wr_level_o` is an upper bound and `rd_level_o` a lower bound of the real occupancy. Both are safe for flow control. |
+| MAS-AF-7 | Memory inferred as LUTRAM with asynchronous read. | FWFT with no extra latency cycle. The reference configuration goes from ≈ 2370 to ≈ 66 flip-flops (§18.1). For large `DEPTH × DATA_W`, Block RAM with prefetch is planned (OI-01). |
+| MAS-AF-8 | Combinational `gray2bin`. | XOR chain of depth AW. If it limits timing, `wq2_rbin` / `rq2_wbin` are registered at the cost of one extra cycle of pessimism in the levels (OI-05). |
+| MAS-AF-9 | `wgray_q` and `rgray_q` MUST carry `(* DONT_TOUCH = "TRUE" *)`. | The MSB of the Gray pointer is identical to the binary MSB. Vivado would therefore merge `wgray_q[AW]` with `wbin_q[AW]` (equivalent register removal). The crossing's launch flop would be renamed, would no longer be covered by the constraints of §16, and would drive logic in its own domain in addition to the synchronizer. |
 
-### 14.6 Caminos críticos esperados
+### 14.6 Expected critical paths
 
-| ID | Camino | Dominio | Profundidad lógica aproximada | Mitigación |
+| ID | Path | Domain | Approximate logic depth | Mitigation |
 |---|---|---|---|---|
-| CP-1 | `wbin_q` → +1 → `bin2gray` → comparador `AW+1` → `full_q` | `wclk` | sumador `AW+1` + XOR + árbol de comparación | Precalcular `wbin_q + 1` en un registro. |
-| CP-2 | `wq2_rgray` → `gray2bin` → resta → comparación con `AF_THRESH` → `almost_full_q` | `wclk` | cadena XOR AW + resta `AW+1` + comparador | MAS-AF-8 (registrar `wq2_rbin`). |
-| CP-3 | `rbin_q` → dirección de LUTRAM → `rd_data_o` | `rclk` | 1 LUT (`DEPTH ≤ 32`) + máscara de `OUTPUT_ZERO_IF_EMPTY` | Registro de salida en el consumidor; Block RAM con prefetch (OI-01). |
-| CP-4 | Camino CDC LUTRAM → registro del consumidor | `wclk` → `rclk` | — | Camino calificado; restringido con `set_max_delay -datapath_only` (§16). |
+| CP-1 | `wbin_q` → +1 → `bin2gray` → `AW+1` comparator → `full_q` | `wclk` | `AW+1` adder + XOR + comparison tree | Precompute `wbin_q + 1` in a register. |
+| CP-2 | `wq2_rgray` → `gray2bin` → subtraction → compare with `AF_THRESH` → `almost_full_q` | `wclk` | AW XOR chain + `AW+1` subtraction + comparator | MAS-AF-8 (register `wq2_rbin`). |
+| CP-3 | `rbin_q` → LUTRAM address → `rd_data_o` | `rclk` | 1 LUT (`DEPTH ≤ 32`) + `OUTPUT_ZERO_IF_EMPTY` mask | Output register in the consumer; Block RAM with prefetch (OI-01). |
+| CP-4 | CDC path LUTRAM → consumer register | `wclk` → `rclk` | — | Qualified path; constrained with `set_max_delay -datapath_only` (§16). |
 
-CP-1 y CP-2 en `rclk` (4.0 ns) son los candidatos a limitar la Fmax en Artix-7 grado -1 (OI-13).
+CP-1 and CP-2 in `rclk` (4.0 ns) are the candidates to limit Fmax on Artix-7 speed grade -1 (OI-13).
 
 ---
 
-## 15. Intención CDC y tabla de cruces
+## 15. CDC intent and crossing table
 
-### 15.1 Tabla de cruces
+### 15.1 Crossing table
 
-| ID | Módulo | Señal origen | Dominio origen → destino | Ancho | Esquema | Estructura de sincronización | Calificador |
+| ID | Module | Source signal | Source → destination domain | Width | Scheme | Synchronization structure | Qualifier |
 |---|---|---|---|---|---|---|---|
-| CDC-X01 | `cdckit_sync` | `d_i` | asíncrono → `clk_i` | `WIDTH` | Nivel, bits independientes | `NUM_STAGES` flops | — |
-| CDC-X02 | `cdckit_rst_sync` | `arst_ni` (liberación) | asíncrono → `clk_i` | 1 | Reset async-assert / sync-deassert | `NUM_STAGES` flops con CLR | — |
+| CDC-X01 | `cdckit_sync` | `d_i` | async → `clk_i` | `WIDTH` | Level, independent bits | `NUM_STAGES` flops | — |
+| CDC-X02 | `cdckit_rst_sync` | `arst_ni` (release) | async → `clk_i` | 1 | Reset async-assert / sync-deassert | `NUM_STAGES` flops with CLR | — |
 | CDC-X03 | `cdckit_pulse_sync` | `tgl_q` | `clk_src` → `clk_dst` | 1 | Toggle | `cdckit_sync` | — |
-| CDC-X04 | `cdckit_hs` | `req_q` | `clk_src` → `clk_dst` | 1 | Handshake 4 fases | `cdckit_sync` | — |
-| CDC-X05 | `cdckit_hs` | `ack_q` | `clk_dst` → `clk_src` | 1 | Handshake 4 fases | `cdckit_sync` | — |
-| CDC-X06 | `cdckit_hs` | `hold_q` | `clk_src` → `clk_dst` | `DATA_W` | Datos agrupados (*bundled data*) | Ninguna (dato estable) | `req_s & ~ack_q` |
+| CDC-X04 | `cdckit_hs` | `req_q` | `clk_src` → `clk_dst` | 1 | 4-phase handshake | `cdckit_sync` | — |
+| CDC-X05 | `cdckit_hs` | `ack_q` | `clk_dst` → `clk_src` | 1 | 4-phase handshake | `cdckit_sync` | — |
+| CDC-X06 | `cdckit_hs` | `hold_q` | `clk_src` → `clk_dst` | `DATA_W` | Bundled data | None (stable data) | `req_s & ~ack_q` |
 | CDC-X07 | `cdckit_afifo` | `wgray_q` | `wclk` → `rclk` | `AW+1` | Gray | `cdckit_sync` (`u_sync_w2r`) | — |
 | CDC-X08 | `cdckit_afifo` | `rgray_q` | `rclk` → `wclk` | `AW+1` | Gray | `cdckit_sync` (`u_sync_r2w`) | — |
-| CDC-X09 | `cdckit_afifo` | `mem[*]` | `wclk` → `rclk` | `DATA_W` | FIFO (datos en memoria) | Ninguna | `empty_q == 0` |
+| CDC-X09 | `cdckit_afifo` | `mem[*]` | `wclk` → `rclk` | `DATA_W` | FIFO (data in memory) | None | `empty_q == 0` |
 
-### 15.2 Requisitos CDC
+### 15.2 CDC requirements
 
-| ID | Requisito |
+| ID | Requirement |
 |---|---|
-| CDC-001 | `report_cdc -details` sobre el arnés (§16.4) NO DEBE contener resultados *Critical*. Cada resultado *Warning* DEBE estar cubierto por un `create_waiver` con su justificación y referencia a la §15.3. |
-| CDC-002 | Ningún cruce DEBE presentar reconvergencia de señales sincronizadas por separado. |
-| CDC-003 | Los buses X07 y X08 DEBEN cambiar como máximo un bit por ciclo de su reloj de origen (SVA-01, SVA-02), y su skew DEBE quedar acotado por `set_bus_skew` (STA-004). |
-| CDC-004 | No DEBE haber cruces de dominio de reset no justificados bajo la secuencia de la Figura 5. Vivado no incluye análisis RDC dedicado, así que se verifica de tres formas: simulación de la secuencia (TP-AF-05), reconocimiento de `cdckit_rst_sync` como sincronizador de reset en `report_cdc` y revisión de diseño. |
+| CDC-001 | `report_cdc -details` on the harness (§16.4) MUST NOT contain *Critical* results. Every *Warning* result MUST be covered by a `create_waiver` with its justification and a reference to §15.3. |
+| CDC-002 | No crossing MUST exhibit reconvergence of separately synchronized signals. |
+| CDC-003 | Buses X07 and X08 MUST change at most one bit per cycle of their source clock (SVA-01, SVA-02), and their skew MUST be bounded by `set_bus_skew` (STA-004). |
+| CDC-004 | There MUST be no unjustified reset domain crossings under the sequence of Figure 5. Vivado has no dedicated RDC analysis, so this is verified in three ways: simulation of the sequence (TP-AF-05), recognition of `cdckit_rst_sync` as a reset synchronizer in `report_cdc`, and design review. |
 
-### 15.3 Clasificación esperada en `report_cdc`
+### 15.3 Expected `report_cdc` classification
 
-| Cruce | Topología esperada | Severidad esperada | Tratamiento |
+| Crossing | Expected topology | Expected severity | Treatment |
 |---|---|---|---|
-| X01, X03, X04, X05 | Sincronizador de 1 bit con `ASYNC_REG` | Info (seguro) | — |
-| X02 | Sincronizador de reset asíncrono con `ASYNC_REG` | Info (seguro) | — |
-| X07, X08 | Sincronizador multibit con `ASYNC_REG` (regla CDC-6) | Warning | Waiver: codificación Gray (SVA-01, SVA-02) y `set_bus_skew` (§16.2). Es el mismo waiver que aplica `xpm_cdc_gray`. |
-| X06 | Estructura controlada por *clock enable* (`dst_load`) | Warning | Waiver: *bundled data*, estable durante `req` (SVA-09) y acotado con `set_max_delay`. |
-| X09 | Camino desde LUTRAM escrita en `wclk` hacia el dominio `rclk` | Warning | Waiver: el protocolo de punteros impide leer una palabra mientras se escribe (FUNC-008, FUNC-009). |
+| X01, X03, X04, X05 | 1-bit synchronizer with `ASYNC_REG` | Info (safe) | — |
+| X02 | Asynchronous reset synchronizer with `ASYNC_REG` | Info (safe) | — |
+| X07, X08 | Multibit synchronizer with `ASYNC_REG` (rule CDC-6) | Warning | Waiver: Gray encoding (SVA-01, SVA-02) and `set_bus_skew` (§16.2). It is the same waiver that `xpm_cdc_gray` applies. |
+| X06 | Structure controlled by a *clock enable* (`dst_load`) | Warning | Waiver: bundled data, stable during `req` (SVA-09) and bounded with `set_max_delay`. |
+| X09 | Path from LUTRAM written in `wclk` to the `rclk` domain | Warning | Waiver: the pointer protocol prevents reading a word while it is being written (FUNC-008, FUNC-009). |
 
-Los identificadores exactos de regla, salvo CDC-6, se registrarán a partir del primer informe y se fijarán en la fase de implementación (OI-11).
+The exact rule identifiers, except CDC-6, will be recorded from the first report and fixed in the implementation phase (OI-11).
 
 ---
 
-## 16. Restricciones de timing (XDC)
+## 16. Timing constraints (XDC)
 
-Esta sección especifica la **intención** de las restricciones. Los archivos `.xdc`, el arnés y el script de Vivado se escriben en la fase de implementación (§9).
+This section specifies the **intent** of the constraints. The `.xdc` files, the harness and the Vivado script are written in the implementation phase (§9).
 
-### 16.1 Principio
+### 16.1 Principle
 
-En Vivado, `set_clock_groups` y `set_false_path` tienen **prioridad** sobre `set_max_delay`, y los grupos de reloj no se pueden anular. Por tanto, si un camino entre dos relojes se restringe con `set_max_delay -datapath_only`, esos dos relojes NO DEBEN agruparse con `set_clock_groups`. `set_bus_skew`, en cambio, no es una excepción sino una aserción de timing: se evalúa siempre, solo la optimiza `route_design` y se reporta con `report_bus_skew`, no en `report_timing_summary`.
+In Vivado, `set_clock_groups` and `set_false_path` take **precedence** over `set_max_delay`, and clock groups cannot be overridden. Therefore, if a path between two clocks is constrained with `set_max_delay -datapath_only`, those two clocks MUST NOT be grouped with `set_clock_groups`. `set_bus_skew`, in contrast, is not an exception but a timing assertion: it is always evaluated, it is optimized only by `route_design`, and it is reported by `report_bus_skew`, not in `report_timing_summary`.
 
-La política de la IP es acotar **todos** sus cruces internos con `set_max_delay -datapath_only`, sin `set_false_path`. Así cada cruce tiene una latencia máxima garantizada y ninguno queda sin analizar.
+The IP policy is to bound **all** of its internal crossings with `set_max_delay -datapath_only`, without `set_false_path`. This way every crossing has a guaranteed maximum latency and none is left unanalyzed.
 
-### 16.2 Archivos con alcance por módulo
+### 16.2 Module-scoped files
 
-Cada archivo se carga como restricciones **no gestionadas** con alcance al módulo (`read_xdc -unmanaged -ref <módulo>`) y con `PROCESSING_ORDER LATE`, igual que las macros XPM. El Tcl completo permite leer los períodos de los relojes que llegan a cada instancia, sin rutas jerárquicas fijas, y comprobar STA-006 dentro del propio archivo (`send_msg_id` con *critical warning* si una consulta de celdas está vacía).
+Each file is loaded as **unmanaged** constraints scoped to the module (`read_xdc -unmanaged -ref <module>`) and with `PROCESSING_ORDER LATE`, just like the XPM macros. Full Tcl makes it possible to read the periods of the clocks reaching each instance, without fixed hierarchical paths, and to check STA-006 inside the file itself (`send_msg_id` with a *critical warning* if a cell query is empty).
 
 ```tcl
 ## constraints/cdckit_afifo.xdc  — SCOPED_TO_REF cdckit_afifo, PROCESSING_ORDER LATE
@@ -705,7 +703,7 @@ set_max_delay -datapath_only -from [get_cells {u_rptr/rgray_q_reg[*]}] \
 set_bus_skew  -from [get_cells {u_rptr/rgray_q_reg[*]}] \
               -to [get_cells {u_sync_r2w/s_q_reg[0][*]}] [expr {min($t_w, $t_r)}]
 
-# CDC-X09: LUTRAM (escrita en wclk) -> dominio de lectura
+# CDC-X09: LUTRAM (written in wclk) -> read domain
 set_max_delay -datapath_only -from [get_cells -hierarchical -filter {REF_NAME =~ RAM*}] \
               -to [get_clocks -of_objects [get_pins {u_rptr/rgray_q_reg[0]/C}]] $t_r
 ```
@@ -715,8 +713,8 @@ set_max_delay -datapath_only -from [get_cells -hierarchical -filter {REF_NAME =~
 set t_s [get_property PERIOD [get_clocks -of_objects [get_pins {hold_q_reg[0]/C}]]]
 set t_d [get_property PERIOD [get_clocks -of_objects [get_pins {dst_data_q_reg[0]/C}]]]
 
-# CDC-X04 / X05: req y ack (1 bit)
-set_max_delay -datapath_only -from [get_cells {state_q_reg[1]}] \
+# CDC-X04 / X05: req and ack (1 bit)
+set_max_delay -datapath_only -from [get_cells {current_state_reg[1]}] \
               -to [get_cells {u_sync_req/s_q_reg[0][0]}] $t_d
 set_max_delay -datapath_only -from [get_cells {ack_q_reg}] \
               -to [get_cells {u_sync_ack/s_q_reg[0][0]}] $t_s
@@ -734,241 +732,241 @@ set_max_delay -datapath_only -from [get_cells {tgl_q_reg}] \
 ```
 
 ```tcl
-## constraints/cdckit_impl_top.xdc  — arnés de implementación (§16.4)
+## constraints/cdckit_impl_top.xdc  — implementation harness (§16.4)
 create_clock -name wclk -period 6.400 [get_ports wclk_i]
 create_clock -name rclk -period 4.000 [get_ports rclk_i]
-# CDC-X02: solo el camino de aserción del reset asíncrono. La liberación se analiza como
-# recovery/removal a la salida de cdckit_rst_sync.
+# CDC-X02: only the assertion path of the asynchronous reset. The release is analyzed as
+# recovery/removal at the output of cdckit_rst_sync.
 set_false_path -from [get_ports arst_ni]
-# Sin set_clock_groups entre wclk y rclk (STA-001).
+# No set_clock_groups between wclk and rclk (STA-001).
 ```
 
-Los nombres de celda (`*_reg`, `s_q_reg[0][*]`) corresponden a la nomenclatura de Vivado para registros inferidos. DEBEN comprobarse tras la primera síntesis: una restricción con `-from` o `-to` vacío no aplica nada y Vivado solo emite una advertencia.
+The cell names (`*_reg`, `s_q_reg[0][*]`) follow Vivado's naming for inferred registers. They MUST be checked after the first synthesis: a constraint with an empty `-from` or `-to` applies nothing, and Vivado only issues a warning.
 
-### 16.3 Requisitos de timing
+### 16.3 Timing requirements
 
-| ID | Requisito |
+| ID | Requirement |
 |---|---|
-| STA-001 | NO DEBEN usarse `set_clock_groups` ni `set_false_path` entre los relojes de una instancia. Cada cruce interno DEBE acotarse con `set_max_delay -datapath_only` (§16.1). |
-| STA-002 | Las etapas de `cdckit_sync` DEBEN llevar `ASYNC_REG` y `DONT_TOUCH`; NO DEBEN aparecer empaquetadas en SRL, retemporizadas ni replicadas. |
-| STA-003 | Los chequeos de recovery/removal desde la salida de `cdckit_rst_sync` hacia los flops del dominio DEBEN cumplir (`report_timing_summary`). |
-| STA-004 | `report_bus_skew` NO DEBE reportar violaciones en X07 y X08. |
-| STA-005 | `report_timing_summary -check_timing` NO DEBE reportar caminos sin restringir ni relojes ausentes dentro de la IP. `report_methodology` NO DEBE reportar advertencias TIMING-* sin justificar. |
-| STA-006 | Cada restricción de la §16.2 DEBE resolver al menos una celda en `-from` y en `-to` (comprobación tras la síntesis). |
+| STA-001 | `set_clock_groups` and `set_false_path` MUST NOT be used between the clocks of an instance. Every internal crossing MUST be bounded with `set_max_delay -datapath_only` (§16.1). |
+| STA-002 | The stages of `cdckit_sync` MUST carry `ASYNC_REG` and `DONT_TOUCH`; they MUST NOT appear packed into SRLs, retimed or replicated. |
+| STA-003 | The recovery/removal checks from the output of `cdckit_rst_sync` to the domain flops MUST be met (`report_timing_summary`). |
+| STA-004 | `report_bus_skew` MUST NOT report violations on X07 and X08. |
+| STA-005 | `report_timing_summary -check_timing` MUST NOT report unconstrained paths or missing clocks inside the IP. `report_methodology` MUST NOT report unjustified TIMING-* warnings. |
+| STA-006 | Every constraint in §16.2 MUST resolve at least one cell in `-from` and in `-to` (checked after synthesis). |
 
-### 16.4 Arnés de implementación
+### 16.4 Implementation harness
 
-| ID | Requisito |
+| ID | Requirement |
 |---|---|
-| IMPL-001 | El arnés de implementación (`impl/cdckit_impl_top.sv`, fase de implementación) DEBE instanciar al menos una vez cada primitiva (`cdckit_afifo` `wclk`→`rclk`, `cdckit_hs`, `cdckit_pulse_sync`, `cdckit_sync` y un `cdckit_rst_sync` por dominio) con la configuración de referencia. |
-| IMPL-002 | Todas las entradas y salidas del arnés DEBEN registrarse en su dominio, de modo que todo camino analizado sea de registro a registro. `rd_data_o` se registra en `rclk`. La síntesis es *out-of-context*; los puertos del arnés no se restringen. |
-| IMPL-003 | `report_utilization` DEBE mostrar la memoria de `cdckit_afifo` como LUTRAM. El log de síntesis NO DEBE contener latches inferidos. |
+| IMPL-001 | The implementation harness (`impl/cdckit_impl_top.sv`, implementation phase) MUST instantiate each primitive at least once (`cdckit_afifo` `wclk`→`rclk`, `cdckit_hs`, `cdckit_pulse_sync`, `cdckit_sync` and one `cdckit_rst_sync` per domain) with the reference configuration. |
+| IMPL-002 | All harness inputs and outputs MUST be registered in their domain, so that every analyzed path is register-to-register. `rd_data_o` is registered in `rclk`. Synthesis is *out-of-context*; the harness ports are not constrained. |
+| IMPL-003 | `report_utilization` MUST show the `cdckit_afifo` memory as LUTRAM. The synthesis log MUST NOT contain inferred latches. |
 
 ---
 
-## 17. Aserciones de diseño
+## 17. Design assertions
 
-Las aserciones se entregan en `rtl/cdckit_sva.sv`, conectadas por `bind` y ejecutadas en xsim.
+The assertions are delivered in `rtl/cdckit_sva.sv`, attached with `bind` and run in xsim.
 
-- Las propiedades marcadas como *assume* son suposiciones sobre el entorno. Al no haber verificación formal en la plataforma (OI-08), se ejecutan como `assert` y detectan un estímulo ilegal del testbench.
-- xsim no soporta `cover property`; la cobertura funcional (`covergroup`) se define en el plan de verificación (fase 3) y no forma parte de los archivos de RTL.
-- xsim no soporta propiedades multirreloj, así que cada propiedad usa un único reloj.
+- Properties marked as *assume* are assumptions about the environment. Since the platform has no formal verification (OI-08), they run as `assert` and detect illegal testbench stimulus.
+- xsim does not support `cover property`; functional coverage (`covergroup`) is defined in the verification plan (phase 3) and is not part of the RTL files.
+- xsim does not support multiclock properties, so each property uses a single clock.
 
-| ID | Módulo | Tipo | Propiedad (resumen) | Reloj |
+| ID | Module | Type | Property (summary) | Clock |
 |---|---|---|---|---|
 | SVA-01 | `cdckit_afifo` | assert | `$countones(wgray_q ^ $past(wgray_q)) <= 1` | `wclk` |
 | SVA-02 | `cdckit_afifo` | assert | `$countones(rgray_q ^ $past(rgray_q)) <= 1` | `rclk` |
-| SVA-03 | `cdckit_afifo` | assert | `full_q` y `wr_en_i` implican que `wbin_q` no cambia (`$stable`) | `wclk` |
-| SVA-04 | `cdckit_afifo` | assert | `empty_q` y `rd_en_i` implican que `rbin_q` no cambia (`$stable`) | `rclk` |
+| SVA-03 | `cdckit_afifo` | assert | `full_q` and `wr_en_i` imply that `wbin_q` does not change (`$stable`) | `wclk` |
+| SVA-04 | `cdckit_afifo` | assert | `empty_q` and `rd_en_i` imply that `rbin_q` does not change (`$stable`) | `rclk` |
 | SVA-05 | `cdckit_afifo` | assert | `wr_level_q <= DEPTH` | `wclk` |
 | SVA-06 | `cdckit_afifo` | assert | `rd_level_q <= DEPTH` | `rclk` |
-| SVA-07 | `cdckit_afifo` | assert | `!$isunknown(full_q)` y `!$isunknown(empty_q)` fuera de reset | `wclk` / `rclk` |
-| SVA-08 | `cdckit_hs` | assert | `$onehot(state_q)` | `clk_src` |
-| SVA-09 | `cdckit_hs` | assert | `hold_q` estable (`$stable`) mientras `state_q != S_IDLE` | `clk_src` |
-| SVA-10 | `cdckit_hs` | assert | `dst_valid_q |=> !dst_valid_q` (pulso de un ciclo) | `clk_dst` |
+| SVA-07 | `cdckit_afifo` | assert | `!$isunknown(full_q)` and `!$isunknown(empty_q)` outside reset | `wclk` / `rclk` |
+| SVA-08 | `cdckit_hs` | assert | `$onehot(current_state)` | `clk_src` |
+| SVA-09 | `cdckit_hs` | assert | `hold_q` stable (`$stable`) while `current_state != S_IDLE` | `clk_src` |
+| SVA-10 | `cdckit_hs` | assert | `dst_valid_q |=> !dst_valid_q` (single-cycle pulse) | `clk_dst` |
 | SVA-11 | `cdckit_hs` | assume | `src_valid_i && !src_ready_o |=> src_valid_i && $stable(src_data_i)` | `clk_src` |
-| SVA-12 | `cdckit_pulse_sync` | assume | Tras `pulse_src_i`, no hay otro pulso durante el espaciado de PERF-003 | `clk_src` |
+| SVA-12 | `cdckit_pulse_sync` | assume | After `pulse_src_i`, no other pulse during the PERF-003 spacing | `clk_src` |
 | SVA-13 | `cdckit_pulse_sync` | assert | `pulse_dst_q |=> !pulse_dst_q` | `clk_dst` |
 
-Todas las aserciones concurrentes usan `disable iff (!rst_ni)` del dominio de su reloj. SVA-01 y SVA-02 se evalúan **exclusivamente** con el reloj de origen del bus.
+All concurrent assertions use `disable iff (!rst_ni)` of their clock's domain. SVA-01 and SVA-02 are evaluated **exclusively** with the source clock of the bus.
 
 ---
 
-## 18. Recursos, potencia y portabilidad ASIC
+## 18. Resources, power and ASIC portability
 
-### 18.1 Estimación de recursos (Artix-7)
+### 18.1 Resource estimate (Artix-7)
 
-| Módulo | Flip-flops (fórmula) | FF (ref.) | LUT / LUTRAM (estimación) |
+| Module | Flip-flops (formula) | FF (ref.) | LUT / LUTRAM (estimate) |
 |---|---|---|---|
 | `cdckit_sync` | `N·WIDTH` | `2·WIDTH` | 0 |
-| `cdckit_rst_sync` | `N` | 2 | 0 (mux eliminado, INTG-007) |
+| `cdckit_rst_sync` | `N` | 2 | 0 |
 | `cdckit_pulse_sync` | `1 + N + 1 + 1 + (N+2)` | 9 | ≈ 2 LUT |
-| `cdckit_hs` | `3 + DATA_W + 2N + 1 + 1 + DATA_W` | 73 (`DATA_W = 32`) | ≈ 5 LUT + CE de 64 FF |
-| `cdckit_afifo` | `2·[2(AW+1) + N(AW+1)] + 2(AW+1) + 6` | 66 | ≈ 48 LUT como LUTRAM (72 b ÷ 6 b por `RAM32M` → 12 × 4 LUT) + lógica de punteros |
+| `cdckit_hs` | `3 + DATA_W + 2N + 1 + 1 + DATA_W` | 73 (`DATA_W = 32`) | ≈ 5 LUT + CE on 64 FF |
+| `cdckit_afifo` | `2·[2(AW+1) + N(AW+1)] + 2(AW+1) + 6` | 66 | ≈ 48 LUT as LUTRAM (72 b ÷ 6 b per `RAM32M` → 12 × 4 LUT) + pointer logic |
 
-En FPGA la memoria de la FIFO no consume flip-flops. Si Vivado infiriera registros, el total subiría a `DEPTH·DATA_W + 66` = 2370 FF; por eso IMPL-003 exige comprobar la inferencia. En 7 series, una `RAM32M` (4 LUT, solo en slices SLICEM) implementa una RAM 32×6 de doble puerto simple. Las columnas de LUT son estimaciones y se sustituirán por los valores de `report_utilization` (PERF-007).
+On FPGA the FIFO memory consumes no flip-flops. If Vivado inferred registers, the total would rise to `DEPTH·DATA_W + 66` = 2370 FF; that is why IMPL-003 requires checking the inference. In 7 series, a `RAM32M` (4 LUTs, only in SLICEM slices) implements a 32×6 simple dual-port RAM. The LUT columns are estimates and will be replaced by `report_utilization` values (PERF-007).
 
-### 18.2 Potencia
+### 18.2 Power
 
-| ID | Medida |
+| ID | Measure |
 |---|---|
-| PWR-1 | En FPGA no se infieren ICG. La escritura usa el WE de la LUTRAM y los registros con habilitación usan el pin CE: ningún elemento de memoria cambia sin escritura. |
-| PWR-2 | Los punteros en código Gray conmutan un bit por operación, lo que reduce la actividad de los sincronizadores. |
-| PWR-3 | *(Informativo, ASIC.)* Si la IP se instancia en la frontera de un dominio con power gating, el integrador DEBE aislar las salidas del dominio apagado; los valores de clamp recomendados son `empty_o = 1`, `full_o = 1` y `*_valid_o = 0`. La FPGA de referencia no tiene power gating. |
-| PWR-4 | La potencia dinámica DEBERÍA estimarse con `report_power` usando la actividad SAIF de una simulación xsim de tráfico continuo. |
+| PWR-1 | No ICGs are inferred on FPGA. The write uses the LUTRAM WE and the enabled registers use the CE pin: no storage element toggles without a write. |
+| PWR-2 | Gray-coded pointers toggle one bit per operation, which reduces synchronizer activity. |
+| PWR-3 | *(Informative, ASIC.)* If the IP is instantiated at the boundary of a power-gated domain, the integrator MUST isolate the outputs of the powered-down domain; the recommended clamp values are `empty_o = 1`, `full_o = 1` and `*_valid_o = 0`. The reference FPGA has no power gating. |
+| PWR-4 | Dynamic power SHOULD be estimated with `report_power` using SAIF activity from an xsim continuous-traffic simulation. |
 
-### 18.3 Portabilidad ASIC: DFT (informativo)
+### 18.3 ASIC portability: DFT (informative)
 
-La FPGA de referencia no admite inserción de scan. Los requisitos siguientes se conservan para una futura implementación ASIC y quedan **fuera del alcance de verificación de la v1.0**. En FPGA aplica INTG-007.
+The reference FPGA does not support scan insertion. The following requirements are kept for a future ASIC implementation and are **outside the v1.0 verification scope**.
 
-| ID | Requisito |
+| ID | Requirement |
 |---|---|
-| DFT-001 | Todos los flip-flops, incluidos los de sincronización y la memoria, DEBEN ser escaneables. |
-| DFT-002 | `cdckit_rst_sync` DEBE ofrecer control directo del reset en modo de test (`scan_mode_i`, `scan_rst_ni`). |
-| DFT-003 | En modo de captura de scan, los relojes `wclk` y `rclk` DEBEN pertenecer a dominios de scan distintos, o capturarse con un esquema que evite cruces de captura entre ellos. |
-| DFT-004 | Las ICG que se infieran en ASIC DEBEN tener su pin de test enable conectado a `scan_enable`. |
+| DFT-001 | All flip-flops, including the synchronizer flops and the memory, MUST be scannable. |
+| DFT-002 | `cdckit_rst_sync` does not include reset control for scan; in ASIC it MUST be added in the integration wrapper (test mux on `rst_no`, *don't touch* library cell). |
+| DFT-003 | In scan capture mode, the `wclk` and `rclk` clocks MUST belong to different scan domains, or be captured with a scheme that avoids capture crossings between them. |
+| DFT-004 | ICGs inferred in ASIC MUST have their test-enable pin connected to `scan_enable`. |
 
 ---
 
-## 19. Matriz de trazabilidad de requisitos
+## 19. Requirements traceability matrix
 
-Métodos de verificación:
+Verification methods:
 
-| Método | Significado |
+| Method | Meaning |
 |---|---|
-| **SIM** | Simulación en xsim con UVM 1.2 y aserciones SVA. |
-| **COV** | Cobertura funcional (definida en el plan de verificación) y de código (`xcrg`). |
+| **SIM** | Simulation in xsim with UVM 1.2 and SVA assertions. |
+| **COV** | Functional coverage (defined in the verification plan) and code coverage (`xcrg`). |
 | **LINT** | Vivado RTL Linter. |
-| **SYN** | Síntesis: log, `report_utilization` y esquemático. |
-| **STA** | `report_timing_summary` y `report_bus_skew` tras `route_design`. |
-| **CDC** | `report_cdc -details` con waivers justificados. |
+| **SYN** | Synthesis: log, `report_utilization` and schematic. |
+| **STA** | `report_timing_summary` and `report_bus_skew` after `route_design`. |
+| **CDC** | `report_cdc -details` with justified waivers. |
 | **METH** | `report_methodology`. |
-| **MTBF** | Cálculo del Anexo A con datos de caracterización del dispositivo. |
-| **REV** | Revisión de diseño. |
+| **MTBF** | Annex A calculation with device characterization data. |
+| **REV** | Design review. |
 
-La columna *Plan* referencia los identificadores que se definirán en la fase 3 (plan de verificación).
+The *Plan* column references the identifiers to be defined in phase 3 (verification plan).
 
-| Requisito | Método | Evidencia | Plan |
+| Requirement | Method | Evidence | Plan |
 |---|---|---|---|
-| FUNC-001, FUNC-002 | LINT, CDC | Cada sincronizador clasificado por `report_cdc`; sin lógica combinacional antes de un sincronizador | TP-CDC-01 |
-| FUNC-003 | SIM | Aserción de la liberación tras N flancos; aserción del reset sin reloj | TP-RST-01 |
-| FUNC-004 | SIM | Scoreboard de conteo de eventos; SVA-13 | TP-PLS-01 |
-| FUNC-005, FUNC-006 | SIM, COV | Scoreboard de palabras; SVA-08, SVA-09; cobertura de transferencias consecutivas y de estados de la FSM (plan de verificación) | TP-HS-01 |
-| FUNC-007 | SIM | Scoreboard de orden con relojes aleatorios | TP-AF-01 |
-| FUNC-008 | SIM, COV | SVA-03, SVA-04; cobertura de intentos con FIFO llena / vacía (plan de verificación) | TP-AF-02 |
-| FUNC-009 | SIM | Checker de seguridad: modelo lleno ⇒ `full_o`, modelo vacío ⇒ `empty_o` | TP-AF-03 |
-| FUNC-010, FUNC-011 | SIM | Comparación de `rd_data_o` con la cabeza del modelo, para ambos valores del parámetro | TP-AF-04 |
-| FUNC-012, RST-004 | SIM | Secuencia de reset de la Figura 5 a distintos niveles de ocupación | TP-AF-05 |
-| RST-005, RST-006 | SIM | Reset de un dominio con transferencia en vuelo; ausencia de pulsos espurios (salvo el caso acotado de RST-006) | TP-HS-02, TP-PLS-02 |
-| CLK-002 | SIM, COV | Barrido de relaciones de reloj, incluida deriva de fase con frecuencias casi iguales | TP-CLK-01 |
-| PERF-001, PERF-002 | SIM | Medición de throughput sostenido | TP-PERF-01 |
-| PERF-003, PERF-004 | SIM | Medición de espaciado y de tiempo de ciclo | TP-PERF-02 |
-| PERF-005, PERF-006 | STA | Informes de timing tras `route_design`; barrido de período | TP-IMPL-01 |
-| PERF-007 | SYN, STA | Tabla comparativa `cdckit` frente a XPM | TP-IMPL-02 |
-| STA-001…006 | STA, METH, REV | Informes de timing, de bus skew y de metodología; script de comprobación de restricciones | TP-IMPL-01 |
-| IMPL-001…003 | SYN, REV | Arnés, `report_utilization`, log de síntesis | TP-IMPL-01 |
-| CDC-001, CDC-002 | CDC | `report_cdc` sin Critical; waivers de la §15.3 | TP-CDC-01 |
+| FUNC-001, FUNC-002 | LINT, CDC | Every synchronizer classified by `report_cdc`; no combinational logic before a synchronizer | TP-CDC-01 |
+| FUNC-003 | SIM | Assertion of the release after N edges; assertion of the reset without a clock | TP-RST-01 |
+| FUNC-004 | SIM | Event-count scoreboard; SVA-13 | TP-PLS-01 |
+| FUNC-005, FUNC-006 | SIM, COV | Word scoreboard; SVA-08, SVA-09; coverage of back-to-back transfers and FSM states (verification plan) | TP-HS-01 |
+| FUNC-007 | SIM | Ordering scoreboard with random clocks | TP-AF-01 |
+| FUNC-008 | SIM, COV | SVA-03, SVA-04; coverage of attempts with the FIFO full / empty (verification plan) | TP-AF-02 |
+| FUNC-009 | SIM | Safety checker: model full ⇒ `full_o`, model empty ⇒ `empty_o` | TP-AF-03 |
+| FUNC-010, FUNC-011 | SIM | Comparison of `rd_data_o` with the model head, for both parameter values | TP-AF-04 |
+| FUNC-012, RST-004 | SIM | Figure 5 reset sequence at different occupancy levels | TP-AF-05 |
+| RST-005, RST-006 | SIM | Single-domain reset with a transfer in flight; absence of spurious pulses (except the bounded RST-006 case) | TP-HS-02, TP-PLS-02 |
+| CLK-002 | SIM, COV | Clock-ratio sweep, including phase drift with near-equal frequencies | TP-CLK-01 |
+| PERF-001, PERF-002 | SIM | Sustained throughput measurement | TP-PERF-01 |
+| PERF-003, PERF-004 | SIM | Spacing and cycle-time measurement | TP-PERF-02 |
+| PERF-005, PERF-006 | STA | Timing reports after `route_design`; period sweep | TP-IMPL-01 |
+| PERF-007 | SYN, STA | `cdckit` vs XPM comparison table | TP-IMPL-02 |
+| STA-001…006 | STA, METH, REV | Timing, bus-skew and methodology reports; constraint-check script | TP-IMPL-01 |
+| IMPL-001…003 | SYN, REV | Harness, `report_utilization`, synthesis log | TP-IMPL-01 |
+| CDC-001, CDC-002 | CDC | `report_cdc` with no Critical; §15.3 waivers | TP-CDC-01 |
 | CDC-003 | SIM, STA | SVA-01, SVA-02; `report_bus_skew` | TP-AF-06 |
-| CDC-004 | SIM, CDC, REV | Secuencia de reset (TP-AF-05); `cdckit_rst_sync` reconocido como sincronizador de reset | TP-AF-05 |
-| MTBF-001, MTBF-002 | MTBF | Cálculo del Anexo A sobre los sincronizadores del arnés | TP-IMPL-03 |
-| PARAM-001…003 | SIM, SYN | Prueba negativa de elaboración en `xelab` y en `synth_design` | TP-PARAM-01 |
-| INTF-001, INTF-002 | SYN, REV | Esquemático post-síntesis: salidas desde registro | — |
-| PWR-4 | SIM, SYN | `report_power` con SAIF | TP-IMPL-04 (opcional) |
-| DFT-001…004, PWR-3 | — | Fuera del alcance de la v1.0 (ASIC) | — |
+| CDC-004 | SIM, CDC, REV | Reset sequence (TP-AF-05); `cdckit_rst_sync` recognized as a reset synchronizer | TP-AF-05 |
+| MTBF-001, MTBF-002 | MTBF | Annex A calculation on the harness synchronizers | TP-IMPL-03 |
+| PARAM-001…003 | SIM, SYN | Negative elaboration test in `xelab` and in `synth_design` | TP-PARAM-01 |
+| INTF-001, INTF-002 | SYN, REV | Post-synthesis schematic: outputs from registers | — |
+| PWR-4 | SIM, SYN | `report_power` with SAIF | TP-IMPL-04 (optional) |
+| DFT-001…004, PWR-3 | — | Outside the v1.0 scope (ASIC) | — |
 
 ---
 
-## 20. Temas abiertos
+## 20. Open issues
 
-| ID | Tema | Impacto | Propuesta | Estado |
+| ID | Issue | Impact | Proposal | Status |
 |---|---|---|---|---|
-| OI-01 | Soporte de Block RAM (lectura síncrona) con prefetch para mantener FWFT. | Recursos para `DEPTH·DATA_W` grandes; latencia de lectura +1 sin prefetch. | Parámetro `MEM_STYLE` en la versión 1.1. | Abierto |
-| OI-02 | Reset independiente por dominio en `cdckit_afifo`. | RDC; NetSwitch-4 requiere resetear el puerto ante link-down sin resetear el núcleo. | Protocolo de reset con handshake entre dominios, o reset sincronizado de ambos lados desde el dominio que inicia. | Abierto |
-| OI-03 | Profundidad mínima para throughput sostenido con relojes iguales. | PERF-002. | Confirmar por simulación de rendimiento (TP-PERF-01). | Abierto |
-| OI-04 | Frecuencia objetivo y dispositivo. | PERF-005. | `xc7a100tcsg324-1` a 156.25 / 250 MHz (§1.3). | Cerrado (v0.7) |
-| OI-05 | Registro opcional de `gray2bin` en el cálculo de niveles. | Timing de CP-2 frente a pesimismo de `almost_*`. | Decidir tras la primera síntesis. | Abierto |
-| OI-06 | Canal de confirmación en `cdckit_pulse_sync` (`busy_o`). | Evitar la fusión de eventos cuando el espaciado no está garantizado. | Variante `cdckit_pulse_sync_ack` en la versión 1.1. | Abierto |
-| OI-07 | Pulso espurio en `cdckit_pulse_sync` ante reset solo del origen. | Si `tgl_q = 1` al resetear el origen, su caída a 0 se ve como un evento en el destino. | Exigir reset conjunto a nivel de sistema, o una variante con codificación de eventos por contador Gray en la v1.1. | Abierto |
-| OI-08 | Verificación formal fuera de la plataforma. | SVA-11 y SVA-12 solo como `assert`; FUNC-003, FUNC-005 y FUNC-008 sin prueba exhaustiva. | Compensar con regresión aleatoria y cobertura. Formal opcional fuera de la plataforma en una versión futura. | Aceptado |
-| OI-09 | UVM 1.2 en xsim en lugar de IEEE 1800.2. | Diferencias menores de API. | No usar APIs eliminadas en 1800.2, para facilitar la migración. | Aceptado |
-| OI-10 | Comportamiento de `synth_design` ante los `$fatal` de elaboración. | PARAM-001…003 en síntesis. | Prueba negativa en síntesis; si no detiene el flujo, añadir la comprobación al script Tcl. | Abierto |
-| OI-11 | Identificadores de regla de `report_cdc` para X06 y X09. | §15.3. | Fijarlos a partir del primer informe, en la fase de implementación. | Abierto |
-| OI-12 | Cambios de RTL derivados de la v0.4. | MAS-HS-6 y MAS-AF-9 (atributos de síntesis). | Aplicados en el RTL. Arnés y XDC diferidos a la fase de implementación. | Cerrado (v0.7) |
-| OI-13 | Cierre de timing de `rclk` = 250 MHz en Artix-7 grado -1. | PERF-005; CP-1 y CP-2 (§14.6). | Medir la Fmax tras `route_design`. Si no cierra, aplicar MAS-AF-8 / precálculo de CP-1 o reducir `rclk` y documentar la Fmax. | Abierto |
+| OI-01 | Block RAM support (synchronous read) with prefetch to keep FWFT. | Resources for large `DEPTH·DATA_W`; read latency +1 without prefetch. | `MEM_STYLE` parameter in version 1.1. | Open |
+| OI-02 | Independent per-domain reset in `cdckit_afifo`. | RDC; NetSwitch-4 requires resetting the port on link-down without resetting the core. | Reset protocol with a handshake between domains, or synchronized reset of both sides from the initiating domain. | Open |
+| OI-03 | Minimum depth for sustained throughput with equal clocks. | PERF-002. | Confirm by performance simulation (TP-PERF-01). | Open |
+| OI-04 | Target frequency and device. | PERF-005. | `xc7a100tcsg324-1` at 156.25 / 250 MHz (§1.3). | Closed (v0.7) |
+| OI-05 | Optional `gray2bin` register in the level computation. | CP-2 timing vs `almost_*` pessimism. | Decide after the first synthesis. | Open |
+| OI-06 | Acknowledge channel in `cdckit_pulse_sync` (`busy_o`). | Avoid event merging when spacing is not guaranteed. | `cdckit_pulse_sync_ack` variant in version 1.1. | Open |
+| OI-07 | Spurious pulse in `cdckit_pulse_sync` on source-only reset. | If `tgl_q = 1` when the source is reset, its fall to 0 is seen as an event at the destination. | Require a joint reset at system level, or a variant with Gray-counter event encoding in v1.1. | Open |
+| OI-08 | Formal verification outside the platform. | SVA-11 and SVA-12 only as `assert`; FUNC-003, FUNC-005 and FUNC-008 without exhaustive proof. | Compensate with random regression and coverage. Optional formal outside the platform in a future version. | Accepted |
+| OI-09 | UVM 1.2 in xsim instead of IEEE 1800.2. | Minor API differences. | Do not use APIs removed in 1800.2, to ease migration. | Accepted |
+| OI-10 | Behavior of `synth_design` on elaboration `$fatal`s. | PARAM-001…003 in synthesis. | Negative test in synthesis; if it does not stop the flow, add the check to the Tcl script. | Open |
+| OI-11 | `report_cdc` rule identifiers for X06 and X09. | §15.3. | Fix them from the first report, in the implementation phase. | Open |
+| OI-12 | RTL changes derived from v0.4. | MAS-HS-6 and MAS-AF-9 (synthesis attributes). | Applied in the RTL. Harness and XDC deferred to the implementation phase. | Closed (v0.7) |
+| OI-13 | Timing closure of `rclk` = 250 MHz on Artix-7 speed grade -1. | PERF-005; CP-1 and CP-2 (§14.6). | Measure Fmax after `route_design`. If it does not close, apply MAS-AF-8 / CP-1 precomputation or reduce `rclk` and document the Fmax. | Open |
 
 ---
 
-# ANEXOS
+# ANNEXES
 
-## Anexo A — Análisis de MTBF
+## Annex A — MTBF analysis
 
-El comando `report_synchronizer_mtbf` de Vivado calcula el MTBF con datos de caracterización del dispositivo, pero según UG835 aplica a las familias UltraScale y UltraScale+. En Artix-7, el MTBF se calcula con el modelo analítico siguiente, tomando τ y T₀ de la caracterización de metaestabilidad que AMD publica para la familia 7 series. Los sincronizadores se identifican por `ASYNC_REG`.
+Vivado's `report_synchronizer_mtbf` command computes MTBF with device characterization data, but according to UG835 it applies to the UltraScale and UltraScale+ families. On Artix-7, MTBF is computed with the following analytical model, taking τ and T₀ from the metastability characterization that AMD publishes for the 7 series family. Synchronizers are identified by `ASYNC_REG`.
 
-Modelo del sincronizador:
+Synchronizer model:
 
 ```
 MTBF = e^(t_r / τ) / (T_0 · f_clk · f_data)
-t_r ≈ T_clk − t_clk→q − t_setup        (sin lógica entre etapas; por etapa adicional)
+t_r ≈ T_clk − t_clk→q − t_setup        (no logic between stages; per additional stage)
 ```
 
-Ejemplo **ilustrativo** (τ y T₀ no proceden de una librería real): bus `wgray` hacia `rclk` en la configuración de referencia, con τ = 20 ps, T₀ = 50 ps, `f_clk = 250 MHz`, `f_data ≤ 156.25 MHz` y `t_r ≈ 3.9 ns`.
+**Illustrative** example (τ and T₀ do not come from a real library): `wgray` bus into `rclk` in the reference configuration, with τ = 20 ps, T₀ = 50 ps, `f_clk = 250 MHz`, `f_data ≤ 156.25 MHz` and `t_r ≈ 3.9 ns`.
 
 ```
 t_r / τ = 195          e^195 ≈ 10^84.7
-denominador = 50e-12 · 250e6 · 156.25e6 ≈ 1.95e6 s⁻¹
-MTBF por bit ≈ 10^78 s                  →  con AW+1 = 6 bits: ≈ 10^77 s
+denominator = 50e-12 · 250e6 · 156.25e6 ≈ 1.95e6 s⁻¹
+MTBF per bit ≈ 10^78 s                  →  with AW+1 = 6 bits: ≈ 10^77 s
 ```
 
-| ID | Requisito |
+| ID | Requirement |
 |---|---|
-| MTBF-001 | El MTBF agregado de todos los sincronizadores de una instancia DEBE superar 1000 veces la vida útil objetivo del producto, calculado con el modelo de este anexo, con `t_r` obtenido del slack de las etapas tras `route_design` y con τ y T₀ de la caracterización de AMD. |
-| MTBF-002 | Si MTBF-001 no se cumple con `NUM_STAGES = 2`, DEBE incrementarse `NUM_STAGES`. |
-| MTBF-003 | El cálculo DEBE documentar la tasa de conmutación supuesta para las señales de origen. Para los punteros Gray DEBERÍA usarse la tasa de escritura o lectura a ritmo completo, que es el caso más desfavorable. |
+| MTBF-001 | The aggregate MTBF of all synchronizers in an instance MUST exceed 1000 times the target product lifetime, computed with the model in this annex, with `t_r` obtained from the stage slack after `route_design` and with τ and T₀ from AMD characterization. |
+| MTBF-002 | If MTBF-001 is not met with `NUM_STAGES = 2`, `NUM_STAGES` MUST be increased. |
+| MTBF-003 | The calculation MUST document the toggle rate assumed for the source signals. For the Gray pointers, the full-rate write or read rate SHOULD be used, which is the worst case. |
 
-## Anexo B — Integración de referencia: snapshot de contador de 64 b
+## Annex B — Reference integration: 64-bit counter snapshot
 
-Composición informativa (no forma parte de la IP) que lee de forma coherente un contador de 64 b del dominio `clk_rx` desde el dominio `clk_cfg`.
+Informative composition (not part of the IP) that coherently reads a 64-bit counter in the `clk_rx` domain from the `clk_cfg` domain.
 
-![Snapshot de contador de 64 b](img/fig13_counter_snapshot.png)
-*Figura 13 — Integración de referencia: snapshot coherente de un contador de 64 b.*
+![64-bit counter snapshot](img/fig13_counter_snapshot.png)
+*Figure 13 — Reference integration: coherent snapshot of a 64-bit counter.*
 
-El software escribe un bit de control (`snap_req`), espera `snap_valid` (o lo sondea en un registro de estado) y lee el valor coherente de 64 b. Si `snap_req_rx` llega con `src_ready_o = 0`, la petición se ignora. El integrador DEBE impedir peticiones con esa frecuencia, o retenerlas hasta `src_ready_o = 1`.
+Software writes a control bit (`snap_req`), waits for `snap_valid` (or polls it in a status register) and reads the coherent 64-bit value. If `snap_req_rx` arrives with `src_ready_o = 0`, the request is ignored. The integrator MUST prevent requests at that rate, or hold them until `src_ready_o = 1`.
 
-## Anexo C — Glosario
+## Annex C — Glossary
 
-| Término | Definición |
+| Term | Definition |
 |---|---|
-| CDC | *Clock Domain Crossing*: transferencia de una señal entre flip-flops con relojes sin relación de fase garantizada. |
-| RDC | *Reset Domain Crossing*: camino entre flip-flops con resets asíncronos distintos. |
-| FWFT | *First-Word Fall-Through*: el dato en cabeza está disponible en la salida sin un ciclo de lectura previo. |
-| Gray | Código en el que dos valores consecutivos difieren en un solo bit. |
-| Metaestabilidad | Estado intermedio de un biestable cuya resolución a 0 o 1 tiene un tiempo no acotado. |
-| MTBF | *Mean Time Between Failures* de un sincronizador. |
-| Bundled data | Esquema en el que un bus de datos estable acompaña a una señal de control sincronizada. |
-| Reconvergencia | Combinación de señales sincronizadas por separado que pueden llegar en ciclos distintos. |
-| Recovery / removal | Restricciones temporales de liberación de un reset asíncrono respecto al flanco de reloj. |
-| XDC | *Xilinx Design Constraints*: formato de restricciones de Vivado, basado en SDC. |
-| XPM | *Xilinx Parameterized Macros*: macros de Vivado para CDC (`xpm_cdc_*`), memorias y FIFOs. |
-| LUTRAM | RAM distribuida construida con LUTs del CLB; admite lectura asíncrona. |
-| OOC | *Out-of-context*: síntesis de un módulo sin buffers de E/S, como bloque aislado. |
-| WNS / WHS / TPWS | *Worst Negative Slack* (setup), *Worst Hold Slack* y *Total Pulse Width Slack*. |
-| Waiver | Justificación registrada (`create_waiver`) que acepta un resultado de `report_cdc` o de metodología. |
+| CDC | *Clock Domain Crossing*: transfer of a signal between flip-flops whose clocks have no guaranteed phase relationship. |
+| RDC | *Reset Domain Crossing*: path between flip-flops with different asynchronous resets. |
+| FWFT | *First-Word Fall-Through*: the head word is available at the output without a prior read cycle. |
+| Gray | Code in which two consecutive values differ in a single bit. |
+| Metastability | Intermediate state of a bistable whose resolution to 0 or 1 takes an unbounded time. |
+| MTBF | *Mean Time Between Failures* of a synchronizer. |
+| Bundled data | Scheme in which a stable data bus accompanies a synchronized control signal. |
+| Reconvergence | Combination of separately synchronized signals that may arrive in different cycles. |
+| Recovery / removal | Timing checks on the release of an asynchronous reset relative to the clock edge. |
+| XDC | *Xilinx Design Constraints*: Vivado constraint format, based on SDC. |
+| XPM | *Xilinx Parameterized Macros*: Vivado macros for CDC (`xpm_cdc_*`), memories and FIFOs. |
+| LUTRAM | Distributed RAM built from CLB LUTs; supports asynchronous read. |
+| OOC | *Out-of-context*: synthesis of a module without I/O buffers, as an isolated block. |
+| WNS / WHS / TPWS | *Worst Negative Slack* (setup), *Worst Hold Slack* and *Total Pulse Width Slack*. |
+| Waiver | Recorded justification (`create_waiver`) that accepts a `report_cdc` or methodology result. |
 
-## Anexo D — Referencias
+## Annex D — References
 
 1. IEEE Std 1800-2017, *SystemVerilog — Unified Hardware Design, Specification, and Verification Language*.
 2. C. E. Cummings, *Simulation and Synthesis Techniques for Asynchronous FIFO Design*, SNUG San Jose, 2002.
 3. C. E. Cummings, *Clock Domain Crossing (CDC) Design & Verification Techniques Using SystemVerilog*, SNUG Boston, 2008.
-4. R. Ginosar, “Metastability and Synchronizers: A Tutorial”, *IEEE Design & Test of Computers*, 2011.
-5. AMD, *FIFO Generator LogiCORE IP Product Guide* (PG057), y *Embedded FIFO Generator LogiCORE IP Product Guide* (PG327): estructura de puertos por dominio, flags `overflow` / `underflow`, contadores de datos.
-6. lowRISC / OpenTitan, *Comportability Definition and Specification* y plantilla de especificación de IP (Overview, Features, Theory of Operation, Hardware Interfaces, Design Details); primitivas `prim_flop_2sync`, `prim_pulse_sync`, `prim_fifo_async` (parámetro `OutputZeroIfEmpty`).
+4. R. Ginosar, "Metastability and Synchronizers: A Tutorial", *IEEE Design & Test of Computers*, 2011.
+5. AMD, *FIFO Generator LogiCORE IP Product Guide* (PG057), and *Embedded FIFO Generator LogiCORE IP Product Guide* (PG327): per-domain port structure, `overflow` / `underflow` flags, data counters.
+6. lowRISC / OpenTitan, *Comportability Definition and Specification* and IP specification template (Overview, Features, Theory of Operation, Hardware Interfaces, Design Details); primitives `prim_flop_2sync`, `prim_pulse_sync`, `prim_fifo_async` (`OutputZeroIfEmpty` parameter).
 7. IETF RFC 2119, *Key words for use in RFCs to Indicate Requirement Levels*.
-8. AMD, *Vivado Design Suite User Guide: Logic Simulation* (UG900): soporte de SystemVerilog y SVA en xsim, UVM, cobertura de código.
-9. AMD, *Vivado Design Suite User Guide: Synthesis* (UG901): RTL Linter, atributos `ASYNC_REG`, `DONT_TOUCH`, `FSM_ENCODING`.
-10. AMD, *Vivado Design Suite User Guide: Using Constraints* (UG903): prioridad de excepciones, `set_bus_skew`, `ASYNC_REG`.
-11. AMD, *Vivado Design Suite User Guide: Design Analysis and Closure Techniques* (UG906): `report_cdc` y sus reglas.
-12. AMD, *UltraFast Design Methodology Guide* (UG949): restricciones de CDC y precedencia sobre `set_max_delay`.
+8. AMD, *Vivado Design Suite User Guide: Logic Simulation* (UG900): SystemVerilog and SVA support in xsim, UVM, code coverage.
+9. AMD, *Vivado Design Suite User Guide: Synthesis* (UG901): RTL Linter, `ASYNC_REG`, `DONT_TOUCH`, `FSM_ENCODING` attributes.
+10. AMD, *Vivado Design Suite User Guide: Using Constraints* (UG903): exception precedence, `set_bus_skew`, `ASYNC_REG`.
+11. AMD, *Vivado Design Suite User Guide: Design Analysis and Closure Techniques* (UG906): `report_cdc` and its rules.
+12. AMD, *UltraFast Design Methodology Guide* (UG949): CDC constraints and precedence over `set_max_delay`.
 13. AMD, *Vivado Design Suite Tcl Command Reference* (UG835): `report_cdc`, `create_waiver`, `report_synchronizer_mtbf`.
-14. AMD, *UltraScale Architecture Libraries Guide* (UG974): macros `xpm_cdc_*` y `xpm_fifo_async`.
-15. AMD, *Vivado Design Suite User Guide: Release Notes, Installation, and Licensing* (UG973): dispositivos incluidos en la edición gratuita.
-16. AMD, *7 Series FPGAs Configurable Logic Block User Guide* (UG474): RAM distribuida (`RAM32M`), SLICEM.
+14. AMD, *UltraScale Architecture Libraries Guide* (UG974): `xpm_cdc_*` and `xpm_fifo_async` macros.
+15. AMD, *Vivado Design Suite User Guide: Release Notes, Installation, and Licensing* (UG973): devices included in the free edition.
+16. AMD, *7 Series FPGAs Configurable Logic Block User Guide* (UG474): distributed RAM (`RAM32M`), SLICEM.
