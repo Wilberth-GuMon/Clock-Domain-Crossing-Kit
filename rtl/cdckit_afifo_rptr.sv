@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // cdckit_afifo_rptr.sv
-// Read pointer logic of the asynchronous FIFO 
+// Read pointer logic of the asynchronous FIFO
 // -----------------------------------------------------------------------------
 module cdckit_afifo_rptr
   import cdckit_pkg::*;
@@ -8,7 +8,7 @@ module cdckit_afifo_rptr
   parameter int unsigned  DEPTH     = 32,
   parameter int unsigned  AE_THRESH = 2,
   localparam int unsigned AW        = unsigned'($clog2(DEPTH)),
-  localparam int unsigned PTR_W     = AW + 1
+  localparam int unsigned PTR_W     = AW + 1 // [MAS-AF-1]
 ) (
   input  logic             rclk_i,
   input  logic             rrst_ni,
@@ -22,12 +22,12 @@ module cdckit_afifo_rptr
   output logic             rd_underflow_o
 );
 
-  logic [PTR_W-1:0] rbin_q, rbin_d;
+  logic [PTR_W-1:0] rbin_q, rbin_d; // [MAS-AF-3]
   logic [PTR_W-1:0] rgray_d;
   // Without DONT_TOUCH, Vivado merges
   // both registers and the flop that launches crossing gets renamed [AI Feedback]
-  (* DONT_TOUCH = "TRUE" *)
-  logic [PTR_W-1:0] rgray_q;
+  (* DONT_TOUCH = "TRUE" *) // [MAS-AF-9]
+  logic [PTR_W-1:0] rgray_q; // [MAS-AF-3]
   logic [PTR_W-1:0] rq2_wbin;
   logic [PTR_W-1:0] rlevel_d;
   logic [PTR_W-1:0] rd_level_q;
@@ -36,18 +36,18 @@ module cdckit_afifo_rptr
   logic             almost_empty_q;
   logic             rd_underflow_q;
 
-  assign r_pop   = rd_en_i & ~empty_q;
+  assign r_pop   = rd_en_i & ~empty_q; // [FUNC-8]
   assign rbin_d  = rbin_q + PTR_W'(r_pop);
   assign rgray_d = PTR_W'(bin2gray(PTR_MAX_W'(rbin_d)));
 
   // Empty = identical pointers, including the lap bit.
-  assign empty_d = (rgray_d == rq2_wgray_i);
+  assign empty_d = (rgray_d == rq2_wgray_i); // [MAS-AF-4]
 
-  assign rq2_wbin = PTR_W'(gray2bin(PTR_MAX_W'(rq2_wgray_i)));
-  assign rlevel_d = rq2_wbin - rbin_d;
+  assign rq2_wbin = PTR_W'(gray2bin(PTR_MAX_W'(rq2_wgray_i))); // [MAS-AF-8]
+  assign rlevel_d = rq2_wbin - rbin_d; // [FUNC-9] [MAS-AF-6]
 
-  always_ff @(posedge rclk_i or negedge rrst_ni) begin
-    if (!rrst_ni) begin
+  always_ff @(posedge rclk_i or negedge rrst_ni) begin // [RST-1]
+    if (!rrst_ni) begin // [FUNC-12]
       rbin_q         <= '0;
       rgray_q        <= '0;
       empty_q        <= 1'b1;
@@ -57,18 +57,18 @@ module cdckit_afifo_rptr
     end else begin
       rbin_q         <= rbin_d;
       rgray_q        <= rgray_d;
-      empty_q        <= empty_d;
-      almost_empty_q <= (rlevel_d <= PTR_W'(AE_THRESH));
+      empty_q        <= empty_d;                           // [FUNC-15]
+      almost_empty_q <= (rlevel_d <= PTR_W'(AE_THRESH));   // [FUNC-15]
       rd_level_q     <= rlevel_d;
-      rd_underflow_q <= rd_en_i & empty_q;
+      rd_underflow_q <= rd_en_i & empty_q;                 // [FUNC-8]
     end
   end
 
-  assign raddr_o        = rbin_q[AW-1:0];
-  assign rgray_o        = rgray_q;
-  assign empty_o        = empty_q;
-  assign almost_empty_o = almost_empty_q;
-  assign rd_level_o     = rd_level_q;
-  assign rd_underflow_o = rd_underflow_q;
+  assign raddr_o        = rbin_q[AW-1:0]; // [MAS-AF-3]
+  assign rgray_o        = rgray_q;        // [MAS-AF-2]
+  assign empty_o        = empty_q;        // [FUNC-13]
+  assign almost_empty_o = almost_empty_q; // [FUNC-13]
+  assign rd_level_o     = rd_level_q;     // [FUNC-13]
+  assign rd_underflow_o = rd_underflow_q; // [FUNC-13]
 
 endmodule : cdckit_afifo_rptr

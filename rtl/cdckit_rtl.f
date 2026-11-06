@@ -1,0 +1,9 @@
+rtl/cdckit_pkg.sv
+rtl/cdckit_sync.sv
+rtl/cdckit_rst_sync.sv
+rtl/cdckit_pulse_sync.sv
+rtl/cdckit_hs.sv
+rtl/cdckit_afifo_mem.sv
+rtl/cdckit_afifo_wptr.sv
+rtl/cdckit_afifo_rptr.sv
+rtl/cdckit_afifo.sv

@@ -2,7 +2,7 @@
 // cdckit_sync.sv
 // NUM_STAGES-stage level synchronizer
 // -----------------------------------------------------------------------------
-module cdckit_sync #(
+module cdckit_sync #( // [MAS-SYNC-4]
   parameter int unsigned       WIDTH      = 1, // Parameterizable for async FIFOs counters
   parameter int unsigned       NUM_STAGES = 2,
   parameter logic [WIDTH-1:0]  RESET_VAL  = '0
@@ -13,27 +13,31 @@ module cdckit_sync #(
   output logic [WIDTH-1:0] q_o
 );
 
-  if (NUM_STAGES < 2 || NUM_STAGES > 4) begin : g_err_stages
+  if (NUM_STAGES < 2 || NUM_STAGES > 4) begin : g_err_stages // [PARAM-2]
     // Mean Time Between Failures with 4 stages means very low probability of metastability
-    $fatal(1, "cdckit_sync: NUM_STAGES = %0d out of range [2:4]", NUM_STAGES); 
+    $fatal(1, "cdckit_sync: NUM_STAGES = %0d out of range [2:4]", NUM_STAGES);
+  end
+
+  if (WIDTH == 0) begin : g_err_width // [PARAM-4]
+    $fatal(1, "cdckit_sync: WIDTH must be >= 1");
   end
 
   // ASYNC_REG: Vivado does not pack the stages into SRLs or retime them, places them in
   // the same slice (maximum resolution time), and report_cdc recognizes
   // them as a synchronizer. DONT_TOUCH prevents replication and merging [AI feedback]
-  (* ASYNC_REG = "TRUE", DONT_TOUCH = "TRUE" *)
-  
-  logic [NUM_STAGES-1:0][WIDTH-1:0] s_q;
+  (* ASYNC_REG = "TRUE", DONT_TOUCH = "TRUE" *) // [MAS-SYNC-1]
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  logic [NUM_STAGES-1:0][WIDTH-1:0] s_q; // [MAS-SYNC-5]
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin // [RST-1]
     if (!rst_ni) begin
       for (int unsigned i = 0; i < NUM_STAGES; i++) begin // Unsigned for linting purposes [AI Feedback]
-        s_q[i] <= RESET_VAL;
+        s_q[i] <= RESET_VAL; // [MAS-SYNC-3]
       end
     end else begin
       s_q[0] <= d_i; // First FF = Input
       for (int unsigned i = 1; i < NUM_STAGES; i++) begin // Unsigned for linting purposes [AI Feedback]
-        s_q[i] <= s_q[i-1]; // Actual FF = Previous FF
+        s_q[i] <= s_q[i-1]; // Actual FF = Previous FF // [FUNC-2] [MAS-SYNC-2]
       end
     end
   end

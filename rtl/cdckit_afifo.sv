@@ -10,7 +10,7 @@ module cdckit_afifo #(
   parameter int unsigned  AE_THRESH            = 2,
   parameter bit           OUTPUT_ZERO_IF_EMPTY = 1'b0,
   localparam int unsigned AW                   = unsigned'($clog2(DEPTH)),
-  localparam int unsigned PTR_W                = AW + 1
+  localparam int unsigned PTR_W                = AW + 1 // [MAS-AF-1]
 ) (
   // Write port
   input  logic              wclk_i,
@@ -35,14 +35,17 @@ module cdckit_afifo #(
   // ---------------------------------------------------------------------------
   // Parameter checks
   // ---------------------------------------------------------------------------
-  if (DEPTH < 4 || (DEPTH & (DEPTH - 1)) != 0) begin : g_err_depth
+  if (DEPTH < 4 || (DEPTH & (DEPTH - 1)) != 0) begin : g_err_depth // [PARAM-1]
     $fatal(1, "cdckit_afifo: DEPTH = %0d must be a power of 2 and >= 4", DEPTH);
   end
-  if (AF_THRESH < 1 || AF_THRESH > DEPTH) begin : g_err_af
+  if (AF_THRESH < 1 || AF_THRESH > DEPTH) begin : g_err_af // [PARAM-3]
     $fatal(1, "cdckit_afifo: AF_THRESH = %0d out of range [1:%0d]", AF_THRESH, DEPTH);
   end
-  if (AE_THRESH > DEPTH - 1) begin : g_err_ae
+  if (AE_THRESH > DEPTH - 1) begin : g_err_ae // [PARAM-3]
     $fatal(1, "cdckit_afifo: AE_THRESH = %0d out of range [0:%0d]", AE_THRESH, DEPTH - 1);
+  end
+  if (DATA_W == 0) begin : g_err_data_w // [PARAM-4]
+    $fatal(1, "cdckit_afifo: DATA_W must be >= 1");
   end
 
   logic              mem_we;
@@ -74,10 +77,10 @@ module cdckit_afifo #(
   cdckit_sync #(
     .WIDTH      (PTR_W),
     .NUM_STAGES (NUM_STAGES)
-  ) u_sync_r2w (
+  ) u_sync_r2w (          // [FUNC-1]
     .clk_i  (wclk_i),
-    .rst_ni (wrst_ni),
-    .d_i    (rgray),
+    .rst_ni (wrst_ni),    // [MAS-AF-10]
+    .d_i    (rgray),      // [MAS-AF-2]
     .q_o    (wq2_rgray)
   );
 
@@ -87,7 +90,7 @@ module cdckit_afifo #(
   cdckit_afifo_mem #(
     .DATA_W (DATA_W),
     .DEPTH  (DEPTH)
-  ) u_mem (
+  ) u_mem (               // [MAS-AF-7]
     .wclk_i  (wclk_i),
     .we_i    (mem_we),
     .waddr_i (waddr),
@@ -118,19 +121,19 @@ module cdckit_afifo #(
   cdckit_sync #(
     .WIDTH      (PTR_W),
     .NUM_STAGES (NUM_STAGES)
-  ) u_sync_w2r (
+  ) u_sync_w2r (          // [FUNC-1]
     .clk_i  (rclk_i),
-    .rst_ni (rrst_ni),
-    .d_i    (wgray),
+    .rst_ni (rrst_ni),    // [MAS-AF-10]
+    .d_i    (wgray),      // [MAS-AF-2]
     .q_o    (rq2_wgray)
   );
 
   // With OUTPUT_ZERO_IF_EMPTY the output is qualified by empty_o: a consumer that does
   // not look at empty_o never observes the CDC-X09 path [AI Feedback].
   if (OUTPUT_ZERO_IF_EMPTY) begin : g_zero_if_empty
-    assign rd_data_o = empty_o ? '0 : mem_rdata;
+    assign rd_data_o = empty_o ? '0 : mem_rdata; // [FUNC-10] [FUNC-11]
   end else begin : g_raw_rdata
-    assign rd_data_o = mem_rdata;
+    assign rd_data_o = mem_rdata; // [FUNC-10]
   end
 
 endmodule : cdckit_afifo

@@ -14,10 +14,10 @@ module cdckit_rst_sync #(
     .WIDTH      (1),
     .NUM_STAGES (NUM_STAGES),
     .RESET_VAL  (1'b0)
-  ) u_sync (
+  ) u_sync (              // [FUNC-3]
     .clk_i  (clk_i),
-    .rst_ni (arst_ni),
-    .d_i    (1'b1),
+    .rst_ni (arst_ni),    // [MAS-RST-1]
+    .d_i    (1'b1),       // [MAS-RST-2]
     .q_o    (rst_no)
   );
 

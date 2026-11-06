@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// cdckit_pkgv.sv
+// cdckit_pkg.sv
 // Common functions of CDCKIT
 // -----------------------------------------------------------------------------
 package cdckit_pkg;
@@ -8,12 +8,12 @@ package cdckit_pkg;
   localparam int unsigned PTR_MAX_W = 32;
 
   // Binary to Gray
-  function automatic logic [PTR_MAX_W-1:0] bin2gray(input logic [PTR_MAX_W-1:0] bin);
+  function automatic logic [PTR_MAX_W-1:0] bin2gray(input logic [PTR_MAX_W-1:0] bin); // [MAS-AF-3]
     return bin ^ (bin >> 1);
   endfunction
 
   // Gray to binary: using the process inverse to the bin2gray function
-  function automatic logic [PTR_MAX_W-1:0] gray2bin(input logic [PTR_MAX_W-1:0] gray);
+  function automatic logic [PTR_MAX_W-1:0] gray2bin(input logic [PTR_MAX_W-1:0] gray); // [MAS-AF-8]
     logic [PTR_MAX_W-1:0] bin;
 
     bin[PTR_MAX_W-1] = gray[PTR_MAX_W-1];
