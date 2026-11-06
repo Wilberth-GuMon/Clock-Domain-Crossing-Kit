@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// cdckit_rst_sync
+// cdckit_rst_sync.sv
 // Reset synchronizer: asynchronous assertion, synchronous release
 // -----------------------------------------------------------------------------
 module cdckit_rst_sync #(
@@ -10,7 +10,6 @@ module cdckit_rst_sync #(
   output logic rst_no
 );
 
-  // arst_ni (immediate assertion, no clock needed); the reset deasserts after NUM_STAGES edges.
   cdckit_sync #(
     .WIDTH      (1),
     .NUM_STAGES (NUM_STAGES),

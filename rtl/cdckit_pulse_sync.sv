@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// cdckit_pulse_sync
+// cdckit_pulse_sync.sv
 // Toggle-based pulse synchronizer
 // -----------------------------------------------------------------------------
 module cdckit_pulse_sync #(
@@ -23,9 +23,7 @@ module cdckit_pulse_sync #(
   logic             pulse_dst_q;
   logic [ARM_W-1:0] arm_q;
 
-  // ---------------------------------------------------------------------------
   // Source: each pulse (clk_src) flips a level; the level crosses.
-  // ---------------------------------------------------------------------------
   always_ff @(posedge clk_src_i or negedge rst_src_ni) begin
     if (!rst_src_ni) begin
       tgl_q <= 1'b0;
@@ -44,15 +42,13 @@ module cdckit_pulse_sync #(
     .q_o    (tgl_s)
   );
 
-  // ---------------------------------------------------------------------------
   // Destination: edge detector on the synchronized level to transform it into a pulse with the destination clock (clk_dst).
-  //
+
   // Arming window: arm_q (shift register) prevents false edge detection post-destination reset.
   // If only the dest domain resets, sync flops go to 0 while source tgl_q stays 1.
   // Once sync converges back to 1, it triggers a false 0->1 edge pulse.
   // arm_q masks the output for NUM_STAGES+2 cycles until the sync stabilizes.
   // Trade-off: Legitimate pulses right after reset are lost (intentional design choice), but better than false pulses. [AI Feedback]
-  // ---------------------------------------------------------------------------
   always_ff @(posedge clk_dst_i or negedge rst_dst_ni) begin
     if (!rst_dst_ni) begin
       arm_q       <= '0;

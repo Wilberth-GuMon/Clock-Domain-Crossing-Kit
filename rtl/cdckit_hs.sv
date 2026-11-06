@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// cdckit_hs
+// cdckit_hs.sv
 // Multibit transfer through a 4-phase handshake with a holding register
 // Source: valid/ready. Destination: dst_valid_o pulse,
 // no backpressure.
@@ -73,8 +73,8 @@ module cdckit_hs #(
   assign src_ready_o = current_state[0];   // S_IDLE
   assign req_q       = current_state[1];   // S_REQ
 
-  // Holding register without reset (RST-002): loaded only in S_IDLE, so it stays stable
-  // while the destination may sample it (crossing CDC-X06).
+  // Holding register without reset: loaded only in S_IDLE, so it stays stable
+  // while the destination may sample it.
   always_ff @(posedge clk_src_i) begin
     if (src_valid_i && src_ready_o) begin
       hold_q <= src_data_i;
@@ -91,9 +91,6 @@ module cdckit_hs #(
     .q_o    (ack_s)
   );
 
-  // ===========================================================================
-  // Destination domain
-  // ===========================================================================
   cdckit_sync #(
     .WIDTH      (1),
     .NUM_STAGES (NUM_STAGES)
