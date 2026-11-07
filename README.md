@@ -32,7 +32,7 @@ Synthesizable SystemVerilog library for moving data safely between unrelated clo
 ✅ Document all the important reports at the repo README and the rtl README, including images of preliminary Power, Timing and Utilization
 
 ── Phase 3 · UVM Verification ──
-Generate the testplan FROM THE SPEC in a xml file: scenarios, checkers, SVA list and coverpoints, each mapped to a requirement ID
+⏩ Generate the testplan FROM THE SPEC in a xml file: scenarios, checkers, SVA list and coverpoints, each mapped to a requirement ID
 [AI] Ask AI to check testplan and do upgrades and corrections (corner cases, weak checkers, coverage holes)
 UVM environment generation (agents, independent reference model, scoreboard, coverage, base test)
 [AI] UVM syntax and recommendations review from AI (phasing, objections, races, factory/config_db, model independence)
@@ -129,4 +129,4 @@ LUT counts of the two smallest primitives are pending; their FF counts are from 
 | [`impl/`](impl/) | Implementation harness |
 | [`tb/`](tb/) | Directed smoke test |
 
-**Disclaimer: The **design specifications and functional requirements** in this documentation were generated, structured, and refined using AI-assisted tools to emulate client-side specifications and streamline the microarchitecture planning stage.
+**Disclaimer: The **design specifications and functional requirements** in this documentation were generated, structured, and refined using AI-assisted tools to emulate client-side specifications and streamline the microarchitecture planning stage.
