@@ -14,6 +14,8 @@ set_clock_groups -asynchronous -group [get_clocks wclk] -group [get_clocks rclk]
 # Input delays: 20 % of the period, placeholder until the board is selected (OI-16)
 set_input_delay -clock wclk -max 1.280 [get_ports arst_ni]
 set_input_delay -clock wclk -min 0.000 [get_ports arst_ni]
+set_input_delay -clock rclk -max 0.800 -add_delay [get_ports arst_ni]
+set_input_delay -clock rclk -min 0.000 -add_delay [get_ports arst_ni]
 
 # Output delays: 20 % of the period, placeholder until the board is selected (OI-16)
 set_output_delay -clock wclk -max 1.280 [get_ports w_obs_o]

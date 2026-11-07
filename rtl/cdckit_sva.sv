@@ -21,31 +21,29 @@ module cdckit_afifo_wptr_sva #(
   input logic [AW:0] wgray_q,
   input logic [AW:0] wr_level_q
 );
-  default clocking cb @(posedge wclk_i); endclocking
-  default disable iff (!wrst_ni);
 
   // [MAS-AF-2]
-  a_wgray_onebit: assert property ($countones(wgray_q ^ $past(wgray_q)) <= 1)
+  a_wgray_onebit: assert property (@(posedge wclk_i) disable iff (!wrst_ni) $countones(wgray_q ^ $past(wgray_q)) <= 1)
     else $error("SVA-01: wgray_q changed more than one bit");
 
   // [FUNC-8]
-  a_wr_full_hold: assert property (wr_en_i && full_q |=> $stable(wbin_q))
+  a_wr_full_hold: assert property (@(posedge wclk_i) disable iff (!wrst_ni) wr_en_i && full_q |=> $stable(wbin_q))
     else $error("SVA-03: write accepted with full_q = 1");
 
   // [FUNC-9]
-  a_wlevel_max:   assert property (wr_level_q <= (AW+1)'(DEPTH))
+  a_wlevel_max:   assert property (@(posedge wclk_i) disable iff (!wrst_ni) wr_level_q <= (AW+1)'(DEPTH))
     else $error("SVA-05: wr_level_q = %0d > DEPTH", wr_level_q);
 
   // [FUNC-12]
-  a_full_known:   assert property (!$isunknown(full_q))
+  a_full_known:   assert property (@(posedge wclk_i) disable iff (!wrst_ni) !$isunknown(full_q))
     else $error("SVA-07: full_q is unknown");
 
   // [FUNC-15]
-  a_full_level:   assert property (full_q == (wr_level_q == (AW+1)'(DEPTH)))
+  a_full_level:   assert property (@(posedge wclk_i) disable iff (!wrst_ni) full_q == (wr_level_q == (AW+1)'(DEPTH)))
     else $error("SVA-14: full_q inconsistent with wr_level_q = %0d", wr_level_q);
 
   // [FUNC-15]
-  a_afull_level:  assert property (almost_full_q == (wr_level_q >= (AW+1)'(AF_THRESH)))
+  a_afull_level:  assert property (@(posedge wclk_i) disable iff (!wrst_ni) almost_full_q == (wr_level_q >= (AW+1)'(AF_THRESH)))
     else $error("SVA-15: almost_full_q inconsistent with wr_level_q = %0d", wr_level_q);
 endmodule : cdckit_afifo_wptr_sva
 
@@ -66,31 +64,29 @@ module cdckit_afifo_rptr_sva #(
   input logic [AW:0] rgray_q,
   input logic [AW:0] rd_level_q
 );
-  default clocking cb @(posedge rclk_i); endclocking
-  default disable iff (!rrst_ni);
 
   // [MAS-AF-2]
-  a_rgray_onebit: assert property ($countones(rgray_q ^ $past(rgray_q)) <= 1)
+  a_rgray_onebit: assert property (@(posedge rclk_i) disable iff (!rrst_ni) $countones(rgray_q ^ $past(rgray_q)) <= 1)
     else $error("SVA-02: rgray_q changed more than one bit");
 
   // [FUNC-8]
-  a_rd_empty_hold: assert property (rd_en_i && empty_q |=> $stable(rbin_q))
+  a_rd_empty_hold: assert property (@(posedge rclk_i) disable iff (!rrst_ni) rd_en_i && empty_q |=> $stable(rbin_q))
     else $error("SVA-04: read accepted with empty_q = 1");
 
   // [FUNC-9]
-  a_rlevel_max:   assert property (rd_level_q <= (AW+1)'(DEPTH))
+  a_rlevel_max:   assert property (@(posedge rclk_i) disable iff (!rrst_ni) rd_level_q <= (AW+1)'(DEPTH))
     else $error("SVA-06: rd_level_q = %0d > DEPTH", rd_level_q);
 
   // [FUNC-12]
-  a_empty_known:  assert property (!$isunknown(empty_q))
+  a_empty_known:  assert property (@(posedge rclk_i) disable iff (!rrst_ni) !$isunknown(empty_q))
     else $error("SVA-07: empty_q is unknown");
 
   // [FUNC-15]
-  a_empty_level:  assert property (empty_q == (rd_level_q == '0))
+  a_empty_level:  assert property (@(posedge rclk_i) disable iff (!rrst_ni) empty_q == (rd_level_q == '0))
     else $error("SVA-16: empty_q inconsistent with rd_level_q = %0d", rd_level_q);
 
   // [FUNC-15]
-  a_aempty_level: assert property (almost_empty_q == (rd_level_q <= (AW+1)'(AE_THRESH)))
+  a_aempty_level: assert property (@(posedge rclk_i) disable iff (!rrst_ni) almost_empty_q == (rd_level_q <= (AW+1)'(AE_THRESH)))
     else $error("SVA-17: almost_empty_q inconsistent with rd_level_q = %0d", rd_level_q);
 endmodule : cdckit_afifo_rptr_sva
 

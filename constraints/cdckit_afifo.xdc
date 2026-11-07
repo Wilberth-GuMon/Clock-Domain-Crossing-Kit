@@ -25,7 +25,8 @@ if {[llength $wclk] == 1 && [llength $rclk] == 1 &&
   set_bus_skew                 -from $src -to $dst $tmin
 
   # CDC-X09: LUTRAM (written on wclk) -> consumers on rclk
-  set_max_delay -datapath_only \
-    -from [get_cells -hierarchical -filter {PRIMITIVE_SUBGROUP == LUTRAM}] \
-    -to $rclk $tr
+  set mem [get_cells -quiet -hierarchical -filter {REF_NAME =~ RAMD*}]
+  if {[llength $mem] > 0} {
+    set_max_delay -datapath_only -from $mem -to $rclk $tr
+  }
 }
